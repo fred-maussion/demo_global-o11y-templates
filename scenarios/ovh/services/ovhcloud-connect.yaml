@@ -1,0 +1,201 @@
+service: ovhcloud-connect
+sort_order: 5
+cloud_provider: ovh
+cloud_region: BHS5
+cloud_platform: ovh_public_cloud
+cloud_availability_zone: BHS5
+subsystem: connectivity
+language: go
+topology:
+- - vrack-network-manager
+  - /api/v1/vrack/dc-connectivity
+  - GET
+- - managed-kubernetes
+  - /api/v1/mks/cluster-status
+  - GET
+entry_endpoints:
+- - /api/v1/connect/circuits
+  - GET
+- - /api/v1/connect/bgp-status
+  - GET
+db_operations:
+- - SELECT
+  - connect_circuits
+  - SELECT circuit_id, pop_location, bandwidth_gbps, link_status, bgp_state FROM connect_circuits WHERE project_id = ? AND status = 'ACTIVE'
+- - UPDATE
+  - connect_bgp_sessions
+  - UPDATE connect_bgp_sessions SET state = ?, updated_at = NOW() WHERE circuit_id = ? AND peer_ip = ?
+emit_fault_logs: true
+kpi_emitter: false
+constants:
+  CIRCUITS:
+  - OCC-GRA-TH2
+  - OCC-BHS-MTL
+  POP_LOCATIONS:
+  - TH2-Paris
+  - AM5-Amsterdam
+  - MTL-Montreal
+state:
+  _last_bgp_check:
+    init: now
+steps:
+- sample:
+    circuit:
+      choice: CIRCUITS
+    bandwidth_gbps:
+      uniform:
+      - 0.5
+      - 9.5
+      round: 2
+    utilization_pct:
+      if_active:
+        uniform:
+        - 85.0
+        - 99.0
+        round: 1
+      else:
+        uniform:
+        - 20.0
+        - 70.0
+        round: 1
+- metric:
+    name: connect.bandwidth_gbps
+    value:
+      var: bandwidth_gbps
+    unit: Gbps
+- metric:
+    name: connect.utilization_pct
+    value:
+      var: utilization_pct
+    unit: '%'
+- log:
+    level: INFO
+    message: 'ovhcloud-connect: circuit={circuit} bandwidth={bandwidth_gbps}Gbps utilization={utilization_pct}% type=dedicated'
+    attrs:
+      operation: circuit_stats
+      connect.circuit:
+        var: circuit
+      connect.bandwidth_gbps:
+        var: bandwidth_gbps
+      connect.utilization_pct:
+        var: utilization_pct
+- sample:
+    link_status:
+      if_active:
+        choice:
+        - DEGRADED
+        - DEGRADED
+        - DOWN
+      else: UP
+    packet_loss:
+      if_active:
+        uniform:
+        - 1.0
+        - 12.0
+        round: 2
+      else:
+        uniform:
+        - 0.0
+        - 0.1
+        round: 2
+- metric:
+    name: connect.packet_loss_pct
+    value:
+      var: packet_loss
+    unit: '%'
+- log:
+    level: INFO
+    message: 'ovhcloud-connect: circuit={circuit} link_status={link_status} packet_loss={packet_loss}% interval=60s'
+    attrs:
+      operation: link_health
+      connect.link_status:
+        var: link_status
+      connect.packet_loss_pct:
+        var: packet_loss
+- every:
+    seconds: 10
+    state_key: _last_bgp_check
+    steps:
+    - sample:
+        bgp_state:
+          if_active:
+            choice:
+            - IDLE
+            - ACTIVE
+            - OPENSENT
+            - IDLE
+          else: ESTABLISHED
+        advertised_routes:
+          if_active:
+            randint:
+            - 0
+            - 20
+          else:
+            randint:
+            - 40
+            - 120
+        bgp_peer:
+          format: "169.254.0.{a}"
+          a:
+            randint:
+            - 1
+            - 254
+    - metric:
+        name: connect.bgp_advertised_routes
+        value:
+          var: advertised_routes
+        unit: routes
+    - log:
+        level: INFO
+        message: 'ovhcloud-connect: bgp_peer={bgp_peer} state={bgp_state} routes={advertised_routes} session=eBGP'
+        attrs:
+          operation: bgp_check
+          connect.bgp_state:
+            var: bgp_state
+          connect.bgp_advertised_routes:
+            var: advertised_routes
+          connect.bgp_peer:
+            var: bgp_peer
+# --- Background noise: WARN + unrelated ERROR ---
+- sample:
+    noise_circuit:
+      choice: CIRCUITS
+    noise_pop:
+      choice: POP_LOCATIONS
+    light_level_dbm:
+      uniform:
+      - -18.0
+      - -3.0
+      round: 1
+    bfd_interval_ms:
+      choice:
+      - 100
+      - 300
+      - 1000
+- log:
+    level: INFO
+    message: 'ovhcloud-connect: optic_rx={light_level_dbm}dBm circuit={noise_circuit} pop={noise_pop} threshold=-20dBm'
+    attrs:
+      operation: optic_monitoring
+      connect.circuit:
+        var: noise_circuit
+      connect.light_level_dbm:
+        var: light_level_dbm
+- log:
+    level: WARN
+    message: 'ovhcloud-connect: bfd_timeout circuit={noise_circuit} peer=169.254.0.1 missed_intervals=2 bfd_interval={bfd_interval_ms}ms'
+    attrs:
+      operation: bfd_timeout_warning
+      connect.circuit:
+        var: noise_circuit
+      connect.bfd_interval_ms:
+        var: bfd_interval_ms
+- log:
+    level: ERROR
+    message: 'ovhcloud-connect: lacp_negotiation circuit={noise_circuit} pop={noise_pop} error=PARTNER_TIMEOUT bond=bond0 mode=802.3ad'
+    attrs:
+      operation: lacp_negotiation_failure
+      connect.circuit:
+        var: noise_circuit
+      connect.pop:
+        var: noise_pop

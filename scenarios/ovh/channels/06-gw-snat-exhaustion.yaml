@@ -1,0 +1,74 @@
+name: Gateway NAT SNAT Exhaustion
+subsystem: network_access
+vehicle_section: snat_allocation
+error_type: GW-SNAT-EXHAUSTION
+sensor_type: port_allocation
+affected_services:
+- gateway-nat
+- vrack-network-manager
+cascade_services:
+- ovh-load-balancer
+description: Gateway NAT SNAT port pool approaching exhaustion causing outbound connection failures
+investigation_notes: |-
+  Root cause: The OVHcloud Gateway providing SNAT for the private network has exhausted its available port pool. Each outbound connection consumes a source port (from a pool of ~64k per external IP). When workloads scale up or connection reuse is poor, the pool fills up and new outbound connections are dropped. Diagnose:
+    GET /cloud/project/{serviceName}/region/{regionName}/gateway
+    GET /cloud/project/{serviceName}/region/{regionName}/gateway/{gatewayId}
+    openstack router show <router_id>  # check external_gateway_info
+    openstack floating ip list  # check available IPs
+  Check connection state:
+    # From an instance in the private network:
+    ss -s  # socket statistics summary
+    conntrack -S  # connection tracking stats
+    conntrack -L -p tcp --dport 443 | wc -l  # count active outbound HTTPS connections
+  Remediation:
+    1. Allocate additional external IPs to the Gateway:
+       openstack floating ip create Ext-Net
+       # Then attach to the router's external gateway
+    2. Reduce SNAT pressure by implementing connection pooling in applications
+    3. Configure TCP keepalive timeouts to release idle connections faster:
+       # On instances: sysctl -w net.ipv4.tcp_keepalive_time=60
+    4. For long-term fix, request additional Gateway IPs via OVH API:
+       POST /cloud/project/{serviceName}/region/{regionName}/gateway/{gatewayId}/interface
+    5. Consider using Floating IPs for high-traffic services to bypass SNAT entirely
+remediation_action: allocate_gateway_ips
+error_message: 'level=error ts={{timestamp}} caller=gateway_nat.py:189 msg="GW-SNAT-EXHAUSTION" gateway={gateway_id}
+  ports_used={ports_used}/{ports_total} utilization={snat_util_pct}% external_ips={external_ip_count} dropped_connections={dropped_conns}'
+stack_trace: |-
+  Gateway NAT SNAT Report
+  ------------------------
+  Gateway:           {gateway_id}
+  Ports Used:        {ports_used}/{ports_total}
+  Utilization:       {snat_util_pct}%
+  External IPs:      {external_ip_count}
+  Dropped Conns:     {dropped_conns}
+  Region:            SBG5
+  Action: Allocate additional external IPs or enable connection pooling
+correlation_attr:
+  key: infra.gateway_firmware
+  value: gw-openstack-v22.1
+fault_params:
+  gateway_id: {choice: [ovhnet-gw-gra, ovhnet-gw-sbg, ovhnet-gw-bhs]}
+  ports_used: {randint: [60000, 64512]}
+  ports_total: 64512
+  snat_util_pct: {uniform: [92.0, 100.0], round: 1}
+  external_ip_count: {randint: [1, 2]}
+  dropped_conns: {randint: [200, 5000]}
+rca_clues:
+  gateway-nat:
+    gw.snat_utilization_pct: {uniform: [92, 100], round: 1}
+    gw.port_allocation_failures: {randint: [100, 3000]}
+  vrack-network-manager:
+    vrack.outbound_route_status: degraded
+    vrack.affected_subnets: {randint: [1, 3]}
+  ovh-load-balancer:
+    lb.external_api_timeout_rate: {uniform: [5.0, 30.0], round: 1}
+    lb.webhook_delivery_failed: true
+business_impact:
+  - kpi: business.gateway_snat_utilization_pct
+    factor: {uniform: [1.5, 2.0]}
+  - kpi: business.api_success_rate_pct
+    factor: {uniform: [0.75, 0.90]}
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.90, 0.97]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [1.5, 4.0]}

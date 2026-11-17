@@ -1,0 +1,69 @@
+name: MKS Pod OOMKill Recovery
+subsystem: orchestration
+vehicle_section: pod_lifecycle
+error_type: MKS-POD-OOMKILL
+sensor_type: container_runtime
+affected_services:
+- managed-kubernetes
+- ovh-load-balancer
+cascade_services:
+- gateway-nat
+description: Pods being OOMKilled due to memory limit breaches with automatic restart recovery
+investigation_notes: |-
+  Root cause: Pods in the MKS cluster are being OOMKilled (Out of Memory Killed) by the kernel's OOM killer because they exceeded their container memory limits. The kubelet detects the OOMKill via the container runtime (containerd) and restarts the pod with exponential backoff. This creates a temporary capacity reduction as pods cycle through CrashLoopBackOff before stabilizing. Diagnose:
+    kubectl get pods --all-namespaces --field-selector=status.phase!=Running
+    kubectl describe pod <pod_name> -n <namespace> | grep -A 5 "Last State"
+    kubectl top pods -n <namespace> --sort-by=memory
+    kubectl get events --field-selector reason=OOMKilling --sort-by='.lastTimestamp'
+  Check resource limits:
+    kubectl get pods -n <namespace> -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[*].resources.limits.memory}{"\n"}{end}'
+  Remediation: Kubernetes auto-recovers via pod restarts:
+    1. Pods restart with exponential backoff (10s, 20s, 40s... up to 5m)
+    2. After ~5-10 restarts, most pods stabilize at higher memory baseline
+    3. For long-term fix, increase memory limits:
+       kubectl patch deployment <name> -n <namespace> -p '{"spec":{"template":{"spec":{"containers":[{"name":"<container>","resources":{"limits":{"memory":"512Mi"}}}]}}}}'
+    4. Enable Vertical Pod Autoscaler (VPA) for automatic right-sizing:
+       kubectl apply -f vpa-recommendation.yaml
+    5. Check for memory leaks in the application logs
+remediation_action: restart_pods
+error_message: 'level=warn ts={{timestamp}} caller=mks_monitor.go:412 msg="MKS-POD-OOMKILL" cluster={mks_cluster}
+  namespace={namespace} pod={pod_name} container={container_name} memory_limit={memory_limit} restart_count={restart_count}'
+stack_trace: |-
+  MKS Pod OOMKill Report
+  -----------------------
+  Cluster:        {mks_cluster}
+  Namespace:      {namespace}
+  Pod:            {pod_name}
+  Container:      {container_name}
+  Memory Limit:   {memory_limit}
+  Restart Count:  {restart_count}
+  Phase:          CrashLoopBackOff
+  Action: Auto-recovery via kubelet restart — consider increasing memory limits
+correlation_attr:
+  key: deployment.memory_profile
+  value: resource-limits-v2-conservative
+fault_params:
+  mks_cluster: {choice: [ovhnet-mks-gra, ovhnet-mks-sbg, ovhnet-mks-bhs]}
+  namespace: {choice: [ovhnet-prod, ovhnet-staging, monitoring]}
+  pod_name: {format: "ovhnet-app-{n}", n: {randint: [10000, 99999]}}
+  container_name: {choice: [app, sidecar-proxy, log-collector]}
+  memory_limit: {choice: [128Mi, 256Mi, 512Mi]}
+  restart_count: {randint: [3, 15]}
+rca_clues:
+  managed-kubernetes:
+    mks.oomkill_count_last_hour: {randint: [5, 30]}
+    mks.pods_in_crashloop: {randint: [2, 8]}
+  ovh-load-balancer:
+    lb.backend_churn_rate: {uniform: [5.0, 20.0], round: 1}
+    lb.connection_reset_count: {randint: [100, 2000]}
+  gateway-nat:
+    gw.outbound_retry_rate: {uniform: [2.0, 10.0], round: 1}
+business_impact:
+  - kpi: business.backend_health_pct
+    factor: {uniform: [0.70, 0.90]}
+  - kpi: business.lb_5xx_error_rate_pct
+    factor: {uniform: [2.0, 8.0]}
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.95, 0.99]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [0.5, 2.0]}

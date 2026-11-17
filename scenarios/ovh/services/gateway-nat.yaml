@@ -1,0 +1,182 @@
+service: gateway-nat
+sort_order: 4
+cloud_provider: ovh
+cloud_region: SBG5
+cloud_platform: ovh_public_cloud
+cloud_availability_zone: SBG5
+subsystem: network_access
+language: python
+generates_traces: false
+topology:
+- - vrack-network-manager
+  - /api/v1/vrack/subnet-status
+  - GET
+entry_endpoints:
+- - /api/v1/gw/snat-status
+  - GET
+- - /api/v1/gw/allocations
+  - GET
+db_operations:
+- - SELECT
+  - gw_snat_mappings
+  - SELECT mapping_id, internal_ip, external_ip, port_range, status FROM gw_snat_mappings WHERE gateway_id = ? AND status = 'ACTIVE'
+- - UPDATE
+  - gw_allocations
+  - UPDATE gw_allocations SET allocated_ports = ?, updated_at = NOW() WHERE gateway_id = ? AND external_ip = ?
+emit_fault_logs: true
+kpi_emitter: false
+constants:
+  GATEWAY_IDS:
+  - ovhnet-gw-gra
+  - ovhnet-gw-sbg
+  - ovhnet-gw-bhs
+  EXTERNAL_IPS:
+  - 57.128.42.10
+  - 57.128.42.11
+  - 57.128.42.12
+steps:
+- sample:
+    gateway:
+      choice: GATEWAY_IDS
+    snat_ports_used:
+      if_active:
+        randint:
+        - 60000
+        - 64512
+      else:
+        randint:
+        - 5000
+        - 35000
+    snat_ports_total: 64512
+- sample:
+    snat_utilization:
+      expr: round(snat_ports_used / 64512 * 100, 1)
+- metric:
+    name: gw.snat_ports_used
+    value:
+      var: snat_ports_used
+    unit: ports
+- metric:
+    name: gw.snat_ports_total
+    value: 64512
+    unit: ports
+- metric:
+    name: gw.snat_utilization_pct
+    value:
+      var: snat_utilization
+    unit: '%'
+- log:
+    level: INFO
+    message: 'gateway-nat: gw={gateway} ports={snat_ports_used}/64512 utilization={snat_utilization}% status=ACTIVE'
+    attrs:
+      operation: snat_monitor
+      gw.gateway:
+        var: gateway
+      gw.snat_ports_used:
+        var: snat_ports_used
+      gw.snat_ports_total: 64512
+      gw.snat_utilization_pct:
+        var: snat_utilization
+- sample:
+    connections_new:
+      if_active:
+        randint:
+        - 50
+        - 500
+      else:
+        randint:
+        - 1000
+        - 8000
+    connections_dropped:
+      if_active:
+        randint:
+        - 200
+        - 2000
+      else:
+        randint:
+        - 0
+        - 5
+- metric:
+    name: gw.connections_new
+    value:
+      var: connections_new
+    unit: connections
+- metric:
+    name: gw.connections_dropped
+    value:
+      var: connections_dropped
+    unit: connections
+- log:
+    level: INFO
+    message: 'gateway-nat: new_conn={connections_new} dropped={connections_dropped} gw={gateway} interval=60s'
+    attrs:
+      operation: connection_stats
+      gw.connections_new:
+        var: connections_new
+      gw.connections_dropped:
+        var: connections_dropped
+- sample:
+    allocated_ips:
+      if_active:
+        randint:
+        - 1
+        - 2
+      else:
+        randint:
+        - 3
+        - 8
+    ip_quota_max: 10
+- metric:
+    name: gw.allocated_ips
+    value:
+      var: allocated_ips
+    unit: addresses
+- log:
+    level: INFO
+    message: 'gateway-nat: allocated_ips={allocated_ips}/{ip_quota_max} external_pool=ovhnet-ip-pool'
+    attrs:
+      operation: ip_allocation
+      gw.allocated_ips:
+        var: allocated_ips
+      gw.ip_quota_max:
+        var: ip_quota_max
+# --- Background noise: WARN + unrelated ERROR ---
+- sample:
+    noise_gw:
+      choice: GATEWAY_IDS
+    noise_ext_ip:
+      choice: EXTERNAL_IPS
+    conntrack_entries:
+      randint:
+      - 50000
+      - 250000
+    conntrack_max: 262144
+    stale_mappings:
+      randint:
+      - 5
+      - 50
+- log:
+    level: INFO
+    message: 'gateway-nat: conntrack_entries={conntrack_entries}/{conntrack_max} gw={noise_gw} gc_stale={stale_mappings}'
+    attrs:
+      operation: conntrack_stats
+      gw.conntrack_entries:
+        var: conntrack_entries
+      gw.conntrack_max:
+        var: conntrack_max
+- log:
+    level: WARN
+    message: 'gateway-nat: port_range_fragmentation gw={noise_gw} ext_ip={noise_ext_ip} fragmented_ranges=12 reclaim_pending=true'
+    attrs:
+      operation: port_fragmentation_warning
+      gw.gateway:
+        var: noise_gw
+      gw.external_ip:
+        var: noise_ext_ip
+- log:
+    level: ERROR
+    message: 'gateway-nat: hairpin_routing gw={noise_gw} src=10.0.2.15 dst={noise_ext_ip} error=ELOOP ttl_expired=true'
+    attrs:
+      operation: hairpin_routing_error
+      gw.gateway:
+        var: noise_gw

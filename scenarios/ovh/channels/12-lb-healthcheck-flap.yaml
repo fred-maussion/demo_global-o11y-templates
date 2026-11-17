@@ -1,0 +1,71 @@
+name: LB Health Check Flap
+subsystem: traffic_management
+vehicle_section: haproxy_backends
+error_type: LB-HEALTHCHECK-FLAP
+sensor_type: health_check
+affected_services:
+- ovh-load-balancer
+- managed-kubernetes
+cascade_services:
+- vrack-network-manager
+description: HAProxy health checks intermittently failing causing backends to flap between UP and DOWN
+investigation_notes: |-
+  Root cause: HAProxy health checks are intermittently failing for some backends, causing them to rapidly transition between UP and DOWN states. This creates backend flapping — HAProxy removes and re-adds backends in quick succession, causing connection resets for in-flight requests routed to those backends. Common causes: health check endpoint returning 5xx under load, check timeout too aggressive for cold-start pods, or vRack micro-congestion causing probe packet loss. Diagnose:
+    GET /cloud/project/{serviceName}/loadbalancer/{loadbalancerId}/pool/{poolId}/member
+    # Check HAProxy stats:
+    GET /cloud/project/{serviceName}/loadbalancer/{loadbalancerId}/stats
+    # From inside the cluster, test health endpoint directly:
+    kubectl exec -it <pod> -- curl -v http://localhost:8080/health
+    kubectl get endpoints <service_name>
+  Remediation: HAProxy self-recovers as backends stabilize:
+    1. Health checks resume succeeding as backend load normalizes
+    2. HAProxy re-adds backends after the configured rise count (default: 3 consecutive successes)
+    3. For immediate stabilization, increase check interval and fall count:
+       PUT /cloud/project/{serviceName}/loadbalancer/{loadbalancerId}/pool/{poolId} \
+         --healthMonitor '{"delay":10,"timeout":5,"maxRetries":5}'
+    4. Add a readiness probe to pods with a generous initialDelaySeconds:
+       kubectl patch deployment <name> -p '{"spec":{"template":{"spec":{"containers":[{"name":"app","readinessProbe":{"httpGet":{"path":"/health","port":8080},"initialDelaySeconds":15,"periodSeconds":10}}]}}}}'
+    5. If vRack congestion is the cause, check for packet loss on the private network
+remediation_action: reconfigure_health_checks
+error_message: '[HAProxy] LB-HEALTHCHECK-FLAP frontend={lb_frontend} backend={lb_backend} member={member_ip}
+  flap_count={flap_count} current_state={member_state} check_interval={check_interval}s region={ovh_region}'
+stack_trace: |-
+  HAProxy Health Check Flap Report
+  ----------------------------------
+  Frontend:       {lb_frontend}
+  Backend:        {lb_backend}
+  Member IP:      {member_ip}
+  Flap Count:     {flap_count} transitions in last 300s
+  Current State:  {member_state}
+  Check Interval: {check_interval}s
+  Region:         {ovh_region}
+  Action: Auto-recovery expected — increase fall/rise counts if persistent
+correlation_attr:
+  key: infra.haproxy_config
+  value: haproxy-cfg-v2.8-default-checks
+fault_params:
+  lb_frontend: {choice: [ovhnet-fe-https, ovhnet-fe-tcp, ovhnet-fe-internal]}
+  lb_backend: {choice: [ovhnet-be-web, ovhnet-be-api, ovhnet-be-grpc]}
+  member_ip: {format: "10.0.1.{a}", a: {randint: [10, 254]}}
+  flap_count: {randint: [4, 20]}
+  member_state: {choice: [UP, DOWN, UP, UP]}
+  check_interval: {choice: [5, 10, 30]}
+  ovh_region: {choice: [GRA11, SBG5, BHS5]}
+rca_clues:
+  ovh-load-balancer:
+    lb.backend_flap_count: {randint: [4, 20]}
+    lb.in_flight_resets: {randint: [50, 500]}
+  managed-kubernetes:
+    mks.readiness_probe_failing: {choice: [true, false]}
+    mks.pod_startup_latency_ms: {uniform: [500.0, 5000.0], round: 0}
+  vrack-network-manager:
+    vrack.probe_packet_loss_pct: {uniform: [0.5, 5.0], round: 2}
+business_impact:
+  - kpi: business.backend_health_pct
+    factor: {uniform: [0.70, 0.90]}
+  - kpi: business.lb_latency_p50_ms
+    factor: {uniform: [1.5, 4.0]}
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.96, 0.99]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [0.5, 2.0]}

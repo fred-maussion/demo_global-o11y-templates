@@ -1,0 +1,295 @@
+service: vrack-network-manager
+sort_order: 1
+cloud_provider: ovh
+cloud_region: GRA11
+cloud_platform: ovh_public_cloud
+cloud_availability_zone: GRA11
+subsystem: core_network
+language: go
+topology:
+- - ovh-load-balancer
+  - /api/v1/lb/backend-health
+  - GET
+- - ovh-load-balancer
+  - /api/v1/lb/frontends
+  - GET
+- - gateway-nat
+  - /api/v1/gw/snat-status
+  - GET
+- - anti-ddos-vac
+  - /api/v1/vac/mitigation-status
+  - GET
+entry_endpoints:
+- - /api/v1/vrack/networks
+  - GET
+- - /api/v1/vrack/subnets
+  - GET
+- - /api/v1/vrack/vlans
+  - GET
+db_operations:
+- - SELECT
+  - vrack_networks
+  - SELECT network_id, name, vlan_id, subnet_cidr, datacenter FROM vrack_networks WHERE project = ? AND status = 'ACTIVE'
+- - SELECT
+  - vlan_config
+  - SELECT vlan_id, name, dc_pair, mtu, tagging_mode FROM vlan_config WHERE vrack_id = ? ORDER BY vlan_id
+- - UPDATE
+  - vrack_routes
+  - UPDATE vrack_routes SET status = ?, updated_at = NOW() WHERE network_id = ? AND dest_cidr = ?
+emit_fault_logs: true
+kpi_emitter: false
+constants:
+  VLANS:
+  - ovhnet-vlan-100
+  - ovhnet-vlan-200
+  - ovhnet-vlan-300
+  - ovhnet-vlan-400
+  SUBNETS:
+  - ovhnet-subnet-gra
+  - ovhnet-subnet-sbg
+  - ovhnet-subnet-bhs
+  - ovhnet-subnet-services
+  DC_PAIRS:
+  - GRA-SBG
+  - GRA-BHS
+  - SBG-BHS
+state:
+  _poll_idx:
+    init: 0
+  _last_vlan_check:
+    init: now
+steps:
+- sample:
+    subnet:
+      expr: SUBNETS[_poll_idx % len(SUBNETS)]
+    used_ips:
+      if_active:
+        randint:
+        - 240
+        - 254
+      else:
+        randint:
+        - 50
+        - 180
+- counter:
+    state_key: _poll_idx
+    by: 1
+- sample:
+    util_pct:
+      expr: round(used_ips / 254 * 100, 1)
+- metric:
+    name: vrack.subnet.ip_utilization
+    value:
+      var: util_pct
+    unit: '%'
+- metric:
+    name: vrack.subnet.used_ips
+    value:
+      var: used_ips
+    unit: addresses
+- log:
+    level: INFO
+    message: 'vrack-monitor: subnet={subnet} used_ips={used_ips}/254 utilization={util_pct}% network=pn-ovhnet-prod'
+    attrs:
+      operation: subnet_monitor
+      vrack.subnet:
+        var: subnet
+      vrack.used_ips:
+        var: used_ips
+      vrack.total_ips: 254
+      vrack.utilization_pct:
+        var: util_pct
+- every:
+    seconds: 10
+    state_key: _last_vlan_check
+    steps:
+    - sample:
+        dc_pair:
+          choice: DC_PAIRS
+        cross_dc_latency:
+          if_active:
+            uniform:
+            - 45.0
+            - 200.0
+            round: 1
+          else:
+            uniform:
+            - 1.5
+            - 8.0
+            round: 1
+        packet_loss:
+          if_active:
+            uniform:
+            - 2.0
+            - 15.0
+            round: 2
+          else:
+            uniform:
+            - 0.0
+            - 0.3
+            round: 2
+    - metric:
+        name: vrack.cross_dc.latency_ms
+        value:
+          var: cross_dc_latency
+        unit: ms
+    - metric:
+        name: vrack.cross_dc.packet_loss_pct
+        value:
+          var: packet_loss
+        unit: '%'
+    - log:
+        level: INFO
+        message: 'vrack-cross-dc: pair={dc_pair} latency={cross_dc_latency}ms packet_loss={packet_loss}% status=ACTIVE'
+        attrs:
+          operation: cross_dc_check
+          vrack.dc_pair:
+            var: dc_pair
+          vrack.cross_dc_latency:
+            var: cross_dc_latency
+          vrack.packet_loss:
+            var: packet_loss
+- sample:
+    vlan_count:
+      randint:
+      - 4
+      - 12
+    active_peerings:
+      randint:
+      - 1
+      - 5
+- metric:
+    name: vrack.vlan.count
+    value:
+      var: vlan_count
+    unit: vlans
+- metric:
+    name: vrack.peering.count
+    value:
+      var: active_peerings
+    unit: peerings
+- log:
+    level: INFO
+    message: 'vrack-status: vlans={vlan_count} peerings={active_peerings} mtu=9000 network=pn-ovhnet-prod'
+    attrs:
+      operation: vrack_status
+      vrack.vlan_count:
+        var: vlan_count
+      vrack.peering_count:
+        var: active_peerings
+# --- Additional VRACK-VLAN-SEGMENTATION ERROR volume (always ERROR, values degrade during fault) ---
+- sample:
+    seg_vlan:
+      choice: VLANS
+    seg_dc_pair:
+      choice: DC_PAIRS
+    seg_loss_pct:
+      if_active:
+        uniform:
+        - 60.0
+        - 95.0
+        round: 1
+      else:
+        uniform:
+        - 0.0
+        - 0.1
+        round: 2
+    seg_src_ip:
+      format: "10.0.{a}.{b}"
+      a:
+        randint:
+        - 1
+        - 3
+      b:
+        randint:
+        - 10
+        - 254
+    seg_dst_ip:
+      format: "10.0.{a}.{b}"
+      a:
+        randint:
+        - 4
+        - 6
+      b:
+        randint:
+        - 10
+        - 254
+- log:
+    level: ERROR
+    message: 'VRACK-VLAN-SEGMENTATION vlan={seg_vlan} dc_pair={seg_dc_pair} src={seg_src_ip} dst={seg_dst_ip} packet_loss={seg_loss_pct}% tag_mismatch=true mtu=9000'
+    attrs:
+      operation: vlan_segmentation_check
+      vrack.vlan:
+        var: seg_vlan
+      vrack.dc_pair:
+        var: seg_dc_pair
+      vrack.packet_loss_pct:
+        var: seg_loss_pct
+      vrack.src_ip:
+        var: seg_src_ip
+      vrack.dst_ip:
+        var: seg_dst_ip
+- log:
+    level: ERROR
+    message: 'VRACK-VLAN-SEGMENTATION vlan={seg_vlan} dc_pair={seg_dc_pair} src={seg_src_ip} dst={seg_dst_ip} packet_loss={seg_loss_pct}% arp_resolution=FAILED'
+    attrs:
+      operation: vlan_arp_check
+      vrack.vlan:
+        var: seg_vlan
+      vrack.dc_pair:
+        var: seg_dc_pair
+      vrack.packet_loss_pct:
+        var: seg_loss_pct
+- log:
+    level: ERROR
+    message: 'VRACK-VLAN-SEGMENTATION vlan={seg_vlan} dc_pair={seg_dc_pair} src={seg_src_ip} dst={seg_dst_ip} packet_loss={seg_loss_pct}% cross_dc_unreachable=true'
+    attrs:
+      operation: vlan_reachability_check
+      vrack.vlan:
+        var: seg_vlan
+      vrack.dc_pair:
+        var: seg_dc_pair
+      vrack.packet_loss_pct:
+        var: seg_loss_pct
+# --- Background noise: WARN + unrelated ERROR ---
+- sample:
+    noise_vlan:
+      choice: VLANS
+    noise_mtu_mismatch:
+      randint:
+      - 1400
+      - 1500
+    gc_duration_ms:
+      uniform:
+      - 50.0
+      - 300.0
+      round: 0
+- log:
+    level: WARN
+    message: 'vrack-mtu-check: vlan={noise_vlan} expected_mtu=9000 detected_mtu={noise_mtu_mismatch} host=ovhnet-host-gra'
+    attrs:
+      operation: mtu_mismatch_warning
+      vrack.vlan:
+        var: noise_vlan
+      vrack.detected_mtu:
+        var: noise_mtu_mismatch
+- log:
+    level: INFO
+    message: 'vrack-gc: reclaimed_routes=12 stale_entries=3 duration={gc_duration_ms}ms network=pn-ovhnet-prod'
+    attrs:
+      operation: route_garbage_collection
+      vrack.gc_duration_ms:
+        var: gc_duration_ms
+- sample:
+    dns_timeout_host:
+      choice:
+      - ovhnet-host-gra
+      - ovhnet-host-sbg
+      - ovhnet-host-bhs
+- log:
+    level: ERROR
+    message: 'vrack-dns-resolve: host={dns_timeout_host} query=api.ovhnet.internal timeout_ms=5000 retries=3 error=SERVFAIL'
+    attrs:
+      operation: dns_resolution_failure
+      vrack.host:
+        var: dns_timeout_host

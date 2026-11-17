@@ -1,0 +1,70 @@
+name: OVHcloud Connect Circuit Degradation
+subsystem: connectivity
+vehicle_section: dedicated_interconnect
+error_type: CONNECT-CIRCUIT-DEGRADATION
+sensor_type: circuit_monitor
+affected_services:
+- ovhcloud-connect
+- vrack-network-manager
+cascade_services:
+- managed-kubernetes
+- gateway-nat
+description: Dedicated OVHcloud Connect link exhibiting packet loss and performance degradation
+investigation_notes: |-
+  Root cause: The dedicated OVHcloud Connect circuit is experiencing physical layer degradation — increasing CRC errors, light level drops, or intermittent packet loss. This may be caused by fiber optic degradation, transceiver issues at the PoP, or congestion on the provider's last-mile segment. When the primary circuit degrades beyond threshold, traffic fails over to the backup provider Connect link, adding latency. Diagnose:
+    GET /ovhCloudConnect/{serviceName}  # circuit details
+    GET /ovhCloudConnect/{serviceName}/interface  # interface status and counters
+    GET /ovhCloudConnect/{serviceName}/diagnostics  # error counters, light levels
+    ovh-cli cloud-connect get <serviceName> --details
+  Check BGP session status:
+    GET /ovhCloudConnect/{serviceName}/config/pop  # PoP configuration
+    # From on-prem router:
+    show bgp summary
+    show interface <connect-interface> counters errors
+  Remediation: If CRC errors are climbing:
+    1. Request an optical power level check via OVH support ticket (reference the circuit ID)
+    2. If using provider Connect, contact the provider for last-mile diagnostics
+    3. For immediate relief, manually failover to the backup path:
+       PUT /ovhCloudConnect/{serviceName}/config/pop/{popId} --status disabled  # disable degraded PoP
+    4. If BGP session is flapping, increase hold timer:
+       # On on-prem router: neighbor <peer_ip> timers 10 30
+    5. As a temporary measure, route critical traffic through the public internet via Gateway NAT
+remediation_action: reset_connect_circuit
+error_message: 'level=error ts={{timestamp}} caller=connect_monitor.go:287 msg="CONNECT-CIRCUIT-DEGRADATION" circuit={circuit_id}
+  pop={pop_location} packet_loss={packet_loss_pct}% link_status={link_status} crc_errors={crc_errors} bandwidth_degraded={bandwidth_degraded_pct}%'
+stack_trace: "goroutine 267 [running]:\nruntime/debug.Stack()\n\t/usr/local/go/src/runtime/debug/stack.go:24 +0x5e\novhcloud.com/connect/internal.(*CircuitMonitor).CheckHealth(0xc000618000,\
+  \ {{0xc000c12480}}, {{0xc000c124c0}})\n\t/app/internal/connect/circuit_monitor.go:287 +0x3a2\n  Circuit: {circuit_id}\n\
+  \  PoP: {pop_location}\n  Packet Loss: {packet_loss_pct}%\n  Link Status: {link_status}\n  CRC Errors: {crc_errors}\n\
+  \  Bandwidth Degraded: {bandwidth_degraded_pct}%\n  Action: Request optical diagnostics via support ticket"
+correlation_attr:
+  key: infra.connect_firmware
+  value: occ-transceiver-rev3
+fault_params:
+  circuit_id: {format: "OCC-{n}", n: {randint: [100000, 999999]}}
+  pop_location: {choice: [TH2-Paris, AM5-Amsterdam, MTL-Montreal]}
+  packet_loss_pct: {uniform: [2.0, 18.0], round: 2}
+  link_status: {choice: [DEGRADED, DEGRADED, DOWN]}
+  crc_errors: {randint: [500, 50000]}
+  bandwidth_degraded_pct: {uniform: [20.0, 70.0], round: 1}
+rca_clues:
+  ovhcloud-connect:
+    connect.link_status: {choice: [DEGRADED, DOWN]}
+    connect.crc_error_rate: {uniform: [0.1, 5.0], round: 2}
+  vrack-network-manager:
+    vrack.cross_dc_latency_increase_ms: {uniform: [15.0, 80.0], round: 1}
+    vrack.failover_path: provider-backup
+  managed-kubernetes:
+    mks.api_server_latency_ms: {uniform: [200.0, 2000.0], round: 0}
+    mks.etcd_leader_changes: {randint: [1, 5]}
+  gateway-nat:
+    gw.failover_via_public: true
+    gw.public_egress_increase_pct: {uniform: [30.0, 150.0], round: 1}
+business_impact:
+  - kpi: business.connect_bandwidth_gbps
+    factor: {uniform: [0.30, 0.60]}
+  - kpi: business.vrack_cross_dc_latency_ms
+    factor: {uniform: [3.0, 10.0]}
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.92, 0.98]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [1.5, 5.0]}

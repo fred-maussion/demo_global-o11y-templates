@@ -1,0 +1,71 @@
+name: MKS Node NotReady Cascade
+subsystem: orchestration
+vehicle_section: node_lifecycle
+error_type: MKS-NODE-NOTREADY
+sensor_type: node_condition
+affected_services:
+- managed-kubernetes
+- ovh-load-balancer
+cascade_services:
+- vrack-network-manager
+description: Multiple MKS nodes transitioning to NotReady state triggering pod rescheduling
+investigation_notes: |-
+  Root cause: Several nodes in the MKS cluster have transitioned to NotReady status. The kubelet on affected nodes has stopped reporting to the API server — this can be caused by kernel panics, containerd hangs, OOM kills on the node itself, or network partition to the control plane. Kubernetes automatically reschedules pods from NotReady nodes to healthy ones, but this causes a brief capacity dip. Diagnose:
+    kubectl get nodes -o wide
+    kubectl describe node <node_name> | grep -A 10 Conditions
+    kubectl get events --field-selector involvedObject.kind=Node --sort-by='.lastTimestamp'
+    ovh-cli cloud project kube node list --kubeId <cluster_id>
+  Check node pool status:
+    ovh-cli cloud project kube node-pool get --kubeId <cluster_id> --nodePoolId <pool_id>
+    GET /cloud/project/{serviceName}/kube/{kubeId}/nodepool/{nodePoolId}
+  Remediation: Kubernetes self-heals this condition:
+    1. The node controller marks nodes NotReady after the node-monitor-grace-period (default 40s)
+    2. Pods are evicted after pod-eviction-timeout (default 5m)
+    3. The MKS autoscaler provisions replacement nodes automatically
+    4. Monitor recovery: kubectl get nodes -w
+    5. If a node is stuck in NotReady, force-delete it:
+       kubectl delete node <node_name>
+       ovh-cli cloud project kube node delete --kubeId <cluster_id> --nodeId <node_id>
+    6. The node pool will automatically provision a replacement
+remediation_action: reschedule_pods
+error_message: 'level=warn ts={{timestamp}} caller=mks_monitor.go:267 msg="MKS-NODE-NOTREADY" cluster={mks_cluster}
+  node={node_name} pool={node_pool} condition=NotReady reason={notready_reason} pods_evicted={pods_evicted}'
+stack_trace: |-
+  MKS Node Condition Report
+  --------------------------
+  Cluster:        {mks_cluster}
+  Node:           {node_name}
+  Pool:           {node_pool}
+  Condition:      NotReady
+  Reason:         {notready_reason}
+  Pods Evicted:   {pods_evicted}
+  Since:          {notready_duration}s ago
+  Action: Kubernetes auto-recovery in progress — monitor pod rescheduling
+correlation_attr:
+  key: infra.mks_control_plane
+  value: mks-cp-v1.30-3az
+fault_params:
+  mks_cluster: {choice: [ovhnet-mks-gra, ovhnet-mks-sbg, ovhnet-mks-bhs]}
+  node_name: {format: "node-{n}", n: {randint: [10000, 99999]}}
+  node_pool: {choice: [ovhnet-pool-default, ovhnet-pool-compute, ovhnet-pool-memory]}
+  notready_reason: {choice: [KubeletNotReady, NetworkPluginNotReady, ContainerRuntimeUnhealthy]}
+  pods_evicted: {randint: [5, 25]}
+  notready_duration: {randint: [45, 300]}
+rca_clues:
+  managed-kubernetes:
+    mks.notready_nodes: {randint: [1, 3]}
+    mks.eviction_in_progress: true
+  ovh-load-balancer:
+    lb.backends_pending_registration: {randint: [2, 8]}
+    lb.capacity_temporarily_reduced: true
+  vrack-network-manager:
+    vrack.node_ips_releasing: {randint: [1, 3]}
+business_impact:
+  - kpi: business.backend_health_pct
+    factor: {uniform: [0.60, 0.85]}
+  - kpi: business.lb_latency_p50_ms
+    factor: {uniform: [1.5, 3.0]}
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.95, 0.99]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [0.5, 2.0]}

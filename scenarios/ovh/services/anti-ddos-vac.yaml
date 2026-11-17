@@ -1,0 +1,194 @@
+service: anti-ddos-vac
+sort_order: 3
+cloud_provider: ovh
+cloud_region: SBG5
+cloud_platform: ovh_public_cloud
+cloud_availability_zone: SBG5
+subsystem: security
+language: rust
+generates_traces: false
+topology:
+- - vrack-network-manager
+  - /api/v1/vrack/ip-status
+  - GET
+- - ovh-load-balancer
+  - /api/v1/lb/ingress-stats
+  - GET
+entry_endpoints:
+- - /api/v1/vac/status
+  - GET
+- - /api/v1/vac/mitigation
+  - GET
+db_operations:
+- - SELECT
+  - vac_events
+  - SELECT event_id, target_ip, attack_type, volume_mbps, action, timestamp FROM vac_events WHERE target_ip = ? ORDER BY timestamp DESC LIMIT 100
+- - INSERT
+  - vac_mitigation_log
+  - INSERT INTO vac_mitigation_log (target_ip, center, scrubbed_packets, legit_dropped, started_at) VALUES (?, ?, ?, ?, NOW())
+emit_fault_logs: true
+kpi_emitter: false
+constants:
+  SCRUBBING_CENTERS:
+  - VAC-GRA
+  - VAC-SBG
+  - VAC-BHS
+  - VAC-RBX
+  TARGET_IPS:
+  - 198.51.100.10
+  - 198.51.100.20
+  - 198.51.100.30
+steps:
+- sample:
+    center:
+      choice: SCRUBBING_CENTERS
+    target_ip:
+      choice: TARGET_IPS
+    scrubbed_packets:
+      if_active:
+        randint:
+        - 50000
+        - 500000
+      else:
+        randint:
+        - 100
+        - 5000
+    legitimate_dropped:
+      if_active:
+        randint:
+        - 2000
+        - 50000
+      else:
+        randint:
+        - 0
+        - 10
+- metric:
+    name: vac.scrubbed_packets
+    value:
+      var: scrubbed_packets
+    unit: packets
+- metric:
+    name: vac.legitimate_dropped
+    value:
+      var: legitimate_dropped
+    unit: packets
+- log:
+    level: INFO
+    message: 'vac-monitor: center={center} target={target_ip} scrubbed={scrubbed_packets} legit_dropped={legitimate_dropped}'
+    attrs:
+      operation: scrubbing_stats
+      vac.center:
+        var: center
+      vac.target_ip:
+        var: target_ip
+      vac.scrubbed_packets:
+        var: scrubbed_packets
+      vac.legitimate_dropped:
+        var: legitimate_dropped
+- sample:
+    attack_volume_mbps:
+      if_active:
+        uniform:
+        - 500.0
+        - 8000.0
+        round: 1
+      else:
+        uniform:
+        - 0.0
+        - 50.0
+        round: 1
+    mitigation_active:
+      if_active: 1
+      else: 0
+    mitigation_status:
+      if_active: ACTIVE
+      else: STANDBY
+- metric:
+    name: vac.attack_volume_mbps
+    value:
+      var: attack_volume_mbps
+    unit: Mbps
+- metric:
+    name: vac.mitigation_active
+    value:
+      var: mitigation_active
+    unit: ''
+- log:
+    level: INFO
+    message: 'vac-status: attack_volume={attack_volume_mbps}Mbps mitigation={mitigation_status} center={center}'
+    attrs:
+      operation: mitigation_status
+      vac.attack_volume_mbps:
+        var: attack_volume_mbps
+      vac.mitigation_status:
+        var: mitigation_status
+- sample:
+    false_positive_rate:
+      if_active:
+        uniform:
+        - 8.0
+        - 35.0
+        round: 1
+      else:
+        uniform:
+        - 0.0
+        - 0.5
+        round: 1
+- metric:
+    name: vac.false_positive_rate
+    value:
+      var: false_positive_rate
+    unit: '%'
+- log:
+    level: INFO
+    message: 'vac-analysis: false_positive_rate={false_positive_rate}% target={target_ip} profile=network interval=60s'
+    attrs:
+      operation: false_positive_analysis
+      vac.false_positive_rate:
+        var: false_positive_rate
+      vac.target_ip:
+        var: target_ip
+# --- Background noise: WARN + unrelated ERROR ---
+- sample:
+    noise_center:
+      choice: SCRUBBING_CENTERS
+    noise_target:
+      choice: TARGET_IPS
+    signature_ver:
+      choice:
+      - vac-sig-v2.41
+      - vac-sig-v2.42
+      - vac-sig-v2.43
+    rules_loaded:
+      randint:
+      - 2400
+      - 2600
+    detection_latency_us:
+      randint:
+      - 50
+      - 800
+- log:
+    level: INFO
+    message: 'vac-signatures: center={noise_center} version={signature_ver} rules_loaded={rules_loaded} update=OK'
+    attrs:
+      operation: signature_update
+      vac.center:
+        var: noise_center
+      vac.signature_version:
+        var: signature_ver
+- log:
+    level: WARN
+    message: 'vac-detection-latency: center={noise_center} latency={detection_latency_us}us threshold=500us target={noise_target}'
+    attrs:
+      operation: detection_latency_warning
+      vac.center:
+        var: noise_center
+      vac.detection_latency_us:
+        var: detection_latency_us
+- log:
+    level: ERROR
+    message: 'vac-flowspec-sync: center={noise_center} peer=VAC-RBX sync_failed=true error=TIMEOUT retry_in=30s'
+    attrs:
+      operation: flowspec_sync_failure
+      vac.center:
+        var: noise_center

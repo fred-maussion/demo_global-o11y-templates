@@ -1,0 +1,71 @@
+name: OVHcloud Connect BGP Peer Flap
+subsystem: connectivity
+vehicle_section: bgp_routing
+error_type: CONNECT-BGP-FLAP
+sensor_type: bgp_session
+affected_services:
+- ovhcloud-connect
+- vrack-network-manager
+cascade_services:
+- gateway-nat
+description: BGP session oscillating on OVHcloud Connect link causing route table instability
+investigation_notes: |-
+  Root cause: The eBGP session on the OVHcloud Connect link is flapping — transitioning between ESTABLISHED and IDLE/ACTIVE states repeatedly. This causes route withdrawals and re-advertisements, destabilizing the route table and creating transient blackholes. Common causes: hold timer misconfiguration between OVH and on-prem routers, MTU mismatch on the interconnect VLAN, or excessive route churn from the on-prem side. Diagnose:
+    GET /ovhCloudConnect/{serviceName}/config/pop  # check PoP BGP config
+    GET /ovhCloudConnect/{serviceName}/config/pop/{popId}/datacenter  # DC-side config
+    # From on-prem router:
+    show bgp neighbors <peer_ip>
+    show bgp neighbors <peer_ip> received-routes
+    show logging | include BGP
+  Check route stability:
+    # Monitor route count changes over time
+    watch -n 5 'show ip bgp summary | grep <peer_ip>'
+  Remediation:
+    1. Align hold timers — OVH default is 90s, on-prem may be lower:
+       # On on-prem router: neighbor <peer_ip> timers 30 90
+    2. Check MTU on the interconnect VLAN matches both sides (typically 1500 or 9000):
+       # On on-prem: show interface <connect-intf> | include mtu
+    3. Enable BGP graceful restart to maintain forwarding during session resets:
+       # On on-prem: neighbor <peer_ip> graceful-restart
+    4. If route churn is the cause, implement route dampening:
+       # On on-prem: bgp dampening 15 750 2000 60
+    5. Reduce prefix count — aggregate routes before advertising to OVH:
+       # On on-prem: aggregate-address <network> <mask> summary-only
+remediation_action: restart_bgp_session
+error_message: 'level=error ts={{timestamp}} caller=connect_monitor.go:398 msg="CONNECT-BGP-FLAP" circuit={circuit_id}
+  peer_ip={bgp_peer_ip} state_transitions={state_transitions} current_state={bgp_current_state} routes_withdrawn={routes_withdrawn}
+  hold_timer={hold_timer}s'
+stack_trace: "goroutine 312 [running]:\nruntime/debug.Stack()\n\t/usr/local/go/src/runtime/debug/stack.go:24 +0x5e\novhcloud.com/connect/internal.(*BGPMonitor).DetectFlap(0xc000818000,\
+  \ {{0xc000e12480}}, {{0xc000e124c0}})\n\t/app/internal/connect/bgp_monitor.go:398 +0x3a2\n  Circuit: {circuit_id}\n \
+  \ Peer IP: {bgp_peer_ip}\n  State Transitions: {state_transitions} in last 300s\n  Current State: {bgp_current_state}\n\
+  \  Routes Withdrawn: {routes_withdrawn}\n  Hold Timer: {hold_timer}s\n  Action: Align hold timers and enable graceful\
+  \ restart"
+correlation_attr:
+  key: infra.bgp_config_version
+  value: bgp-cfg-v2.4-mismatch
+fault_params:
+  circuit_id: {format: "OCC-{n}", n: {randint: [100000, 999999]}}
+  bgp_peer_ip: {format: "169.254.0.{a}", a: {randint: [1, 254]}}
+  state_transitions: {randint: [5, 30]}
+  bgp_current_state: {choice: [IDLE, ACTIVE, OPENSENT, IDLE]}
+  routes_withdrawn: {randint: [10, 80]}
+  hold_timer: {choice: [30, 60, 90]}
+rca_clues:
+  ovhcloud-connect:
+    connect.bgp_flap_count: {randint: [5, 30]}
+    connect.route_table_unstable: true
+  vrack-network-manager:
+    vrack.route_convergence_time_sec: {uniform: [10.0, 120.0], round: 1}
+    vrack.transient_blackholes: {randint: [2, 15]}
+  gateway-nat:
+    gw.egress_path_flapping: true
+    gw.outbound_reroute_via_public: {choice: [true, false]}
+business_impact:
+  - kpi: business.connect_bandwidth_gbps
+    factor: {uniform: [0.20, 0.50]}
+  - kpi: business.vrack_cross_dc_latency_ms
+    factor: {uniform: [2.0, 8.0]}
+  - kpi: business.network_sla_compliance_pct
+    factor: {uniform: [0.80, 0.92]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [2.0, 6.0]}

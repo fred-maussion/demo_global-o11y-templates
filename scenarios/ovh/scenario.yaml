@@ -1,0 +1,373 @@
+scenario_id: ovh
+scenario_name: OVHcloud Network Operations
+scenario_description: 'OVHcloud-native network operations across three datacenters: GRA (Gravelines), SBG (Strasbourg),
+  and BHS (Beauharnois). Covers vRack private networking, Load Balancer, Anti-DDoS VAC, Gateway NAT, OVHcloud Connect,
+  and Managed Kubernetes services running on OVHcloud Managed Kubernetes Service (MKS).'
+namespace: ovhnet
+scenario_icon: "\U0001F1EA\U0001F1FA"
+sort_order: 10
+schema_version: "1.2"
+nominal_label: NORMAL
+hosts:
+- host.name: ovhnet-host-gra
+  host.id: 'a1b2c3d4-e5f6-7890-abcd-ef0123456789'
+  host.arch: amd64
+  host.type: b3-16
+  host.image.id: ubuntu-24.04-x86_64
+  host.cpu.model.name: Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz
+  host.cpu.vendor.id: GenuineIntel
+  host.cpu.family: '6'
+  host.cpu.model.id: '85'
+  host.cpu.stepping: '7'
+  host.cpu.cache.l2.size: 1048576
+  host.ip:
+  - 10.0.1.10
+  - 10.0.1.11
+  host.mac:
+  - fa:16:3e:a1:b2:c3
+  - fa:16:3e:a1:b2:c4
+  os.type: linux
+  os.description: Ubuntu 24.04 LTS
+  cloud.provider: ovh
+  cloud.platform: ovh_public_cloud
+  cloud.region: GRA11
+  cloud.availability_zone: GRA11
+  cloud.account.id: ovhnet-prod-project
+  cloud.instance.id: 'a1b2c3d4-e5f6-7890-abcd-ef0123456789'
+  cpu_count: 4
+  memory_total_bytes: 17179869184
+  disk_total_bytes: 107374182400
+- host.name: ovhnet-host-sbg
+  host.id: 'b2c3d4e5-f6a7-8901-bcde-f01234567890'
+  host.arch: amd64
+  host.type: b3-16
+  host.image.id: ubuntu-24.04-x86_64
+  host.cpu.model.name: Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz
+  host.cpu.vendor.id: GenuineIntel
+  host.cpu.family: '6'
+  host.cpu.model.id: '85'
+  host.cpu.stepping: '7'
+  host.cpu.cache.l2.size: 1048576
+  host.ip:
+  - 10.0.2.10
+  - 10.0.2.11
+  host.mac:
+  - fa:16:3e:b2:c3:d4
+  - fa:16:3e:b2:c3:d5
+  os.type: linux
+  os.description: Ubuntu 24.04 LTS
+  cloud.provider: ovh
+  cloud.platform: ovh_public_cloud
+  cloud.region: SBG5
+  cloud.availability_zone: SBG5
+  cloud.account.id: ovhnet-prod-project
+  cloud.instance.id: 'b2c3d4e5-f6a7-8901-bcde-f01234567890'
+  cpu_count: 4
+  memory_total_bytes: 17179869184
+  disk_total_bytes: 107374182400
+- host.name: ovhnet-host-bhs
+  host.id: 'c3d4e5f6-a7b8-9012-cdef-012345678901'
+  host.arch: amd64
+  host.type: b3-16
+  host.image.id: ubuntu-24.04-x86_64
+  host.cpu.model.name: Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz
+  host.cpu.vendor.id: GenuineIntel
+  host.cpu.family: '6'
+  host.cpu.model.id: '85'
+  host.cpu.stepping: '7'
+  host.cpu.cache.l2.size: 1048576
+  host.ip:
+  - 10.0.3.10
+  - 10.0.3.11
+  host.mac:
+  - fa:16:3e:c3:d4:e5
+  - fa:16:3e:c3:d4:e6
+  os.type: linux
+  os.description: Ubuntu 24.04 LTS
+  cloud.provider: ovh
+  cloud.platform: ovh_public_cloud
+  cloud.region: BHS5
+  cloud.availability_zone: BHS5
+  cloud.account.id: ovhnet-prod-project
+  cloud.instance.id: 'c3d4e5f6-a7b8-9012-cdef-012345678901'
+  cpu_count: 4
+  memory_total_bytes: 17179869184
+  disk_total_bytes: 107374182400
+k8s_clusters:
+- name: ovhnet-mks-gra
+  provider: ovh
+  platform: ovh_mks
+  region: GRA11
+  zones:
+  - GRA11
+  os_description: Ubuntu 24.04 LTS
+  services:
+  - vrack-network-manager
+  - ovh-load-balancer
+- name: ovhnet-mks-sbg
+  provider: ovh
+  platform: ovh_mks
+  region: SBG5
+  zones:
+  - SBG5
+  os_description: Ubuntu 24.04 LTS
+  services:
+  - anti-ddos-vac
+  - gateway-nat
+- name: ovhnet-mks-bhs
+  provider: ovh
+  platform: ovh_mks
+  region: BHS5
+  zones:
+  - BHS5
+  os_description: Ubuntu 24.04 LTS
+  services:
+  - ovhcloud-connect
+  - managed-kubernetes
+agent_config:
+  id: ovh-network-analyst
+  name: OVHcloud Network Analyst
+  assessment_tool_name: network_health_assessment
+  system_prompt: 'You are the OVHcloud Network Analyst, an expert AI assistant for OVHcloud network operations. You help
+    network engineers investigate incidents, analyze telemetry data, and provide root cause analysis for fault conditions
+    across 6 OVHcloud networking services spanning 3 datacenters (GRA, SBG, BHS). You have deep expertise in OVHcloud vRack
+    private networking (VLANs, subnets, cross-DC routing), OVHcloud Load Balancer (HAProxy-based L4/L7 balancing, SSL termination,
+    health checks), Anti-DDoS VAC scrubbing (automatic mitigation, false positive detection), Gateway NAT (SNAT port allocation,
+    outbound connectivity for Public Cloud), OVHcloud Connect (dedicated and provider interconnect, BGP peering, hybrid
+    connectivity), and Managed Kubernetes Service (MKS node pool management, pod lifecycle, cluster health). When investigating
+    incidents, search for these OVH-specific identifiers in logs: vRack errors (VRACK-VLAN-SEGMENTATION, VRACK-SUBNET-EXHAUSTION,
+    VRACK-FLOATINGIP-CONFLICT), Anti-DDoS events (VAC-FALSE-POSITIVE-FILTERING), Gateway faults (GW-SNAT-EXHAUSTION),
+    Connect faults (CONNECT-CIRCUIT-DEGRADATION, CONNECT-BGP-FLAP), LB faults (LB-BACKEND-DRAIN-STORM, LB-SSL-CERT-RENEWAL,
+    LB-HEALTHCHECK-FLAP), and MKS events (MKS-NODE-NOTREADY, MKS-POD-OOMKILL). Use the OVH API (GET /cloud/project/{serviceName}/...),
+    OpenStack CLI (openstack server list, openstack network list), and ovh-cli for diagnosis. Log messages are in body.text
+    — NEVER search the body field alone.'
+assessment_tool_config:
+  id: network_health_assessment
+  description: 'Comprehensive network health assessment. Evaluates all OVHcloud networking services against operational
+    readiness criteria. Returns data for health evaluation across vRack, Load Balancer, Anti-DDoS VAC, Gateway NAT, OVHcloud
+    Connect, and Managed Kubernetes systems. Log message field: body.text (never use ''body'' alone).'
+executive_kpi_emitter_service_name: ovh-load-balancer
+executive_dashboard_intro: '**OVHcloud network KPIs** — traffic delivery, network & security, SLO compliance, and cloud
+  economics (synthetic `business.*` from `ovh-load-balancer`).'
+executive_kpi_sections:
+- header: '**Traffic** — requests, latency, backend health, errors, throughput, and connections'
+  specs:
+  - - LB requests / min
+    - metrics.business.lb_requests_per_min
+  - - LB latency P50 (ms)
+    - metrics.business.lb_latency_p50_ms
+  - - Backend health (%)
+    - metrics.business.backend_health_pct
+  - - 5xx error rate (%)
+    - metrics.business.lb_5xx_error_rate_pct
+  - - Throughput (Gbps)
+    - metrics.business.throughput_gbps
+  - - Active connections
+    - metrics.business.active_connections
+- header: '**Network & security** — vRack latency, DDoS mitigation, Gateway SNAT, Floating IP, packet loss, Connect bandwidth'
+  specs:
+  - - vRack cross-DC latency (ms)
+    - metrics.business.vrack_cross_dc_latency_ms
+  - - DDoS mitigation events / min
+    - metrics.business.ddos_mitigation_events_per_min
+  - - Gateway SNAT utilization (%)
+    - metrics.business.gateway_snat_utilization_pct
+  - - Floating IP failover count
+    - metrics.business.floating_ip_failover_count
+  - - Private network packet loss (%)
+    - metrics.business.private_network_packet_loss_pct
+  - - Connect bandwidth (Gbps)
+    - metrics.business.connect_bandwidth_gbps
+- header: '**SLO & reliability** — uptime, API success, SLA compliance, MTTD, MTTR'
+  specs:
+  - - Uptime (%)
+    - metrics.business.uptime_pct
+  - - API success rate (%)
+    - metrics.business.api_success_rate_pct
+  - - Network SLA compliance (%)
+    - metrics.business.network_sla_compliance_pct
+  - - Incident MTTD (min)
+    - metrics.business.incident_mttd_min
+  - - Incident MTTR (min)
+    - metrics.business.incident_mttr_min
+  - - Availability index (0–100)
+    - metrics.business.availability_index_0_100
+- header: '**Commercial** — spend, committed use, cost efficiency, carbon, and SLA breaches'
+  specs:
+  - - Cloud spend (EUR/min)
+    - metrics.business.cloud_spend_eur_per_min
+  - - Committed resources utilization (%)
+    - metrics.business.committed_resources_utilization_pct
+  - - Cost / M requests (EUR)
+    - metrics.business.cost_per_million_requests_eur
+  - - Resource efficiency (%)
+    - metrics.business.resource_efficiency_pct
+  - - Carbon intensity (gCO2/TiB)
+    - metrics.business.carbon_intensity_gco2_per_tib
+  - - Customer SLA breaches
+    - metrics.business.customer_sla_breach_count
+executive_trend_charts:
+- title: LB requests / min
+  field: metrics.business.lb_requests_per_min
+  y_label: requests/min
+- title: LB latency P50 (ms)
+  field: metrics.business.lb_latency_p50_ms
+  y_label: ms
+- title: Backend health (%)
+  field: metrics.business.backend_health_pct
+  y_label: '%'
+- title: vRack cross-DC latency (ms)
+  field: metrics.business.vrack_cross_dc_latency_ms
+  y_label: ms
+- title: Cloud spend (EUR/min)
+  field: metrics.business.cloud_spend_eur_per_min
+  y_label: EUR/min
+- title: Uptime (%)
+  field: metrics.business.uptime_pct
+  y_label: '%'
+executive_kpi_emissions:
+  - name: business.lb_requests_per_min
+    value: {randint: [120000, 2400000]}
+    unit: requests/min
+  - name: business.lb_latency_p50_ms
+    value: {uniform: [4.0, 35.0], round: 1}
+    unit: ms
+  - name: business.backend_health_pct
+    value: {uniform: [85.0, 100.0], round: 2}
+    unit: "%"
+  - name: business.lb_5xx_error_rate_pct
+    value: {uniform: [0.01, 1.2], round: 3}
+    unit: "%"
+  - name: business.throughput_gbps
+    value: {uniform: [2.0, 48.0], round: 2}
+    unit: Gbps
+  - name: business.active_connections
+    value: {randint: [8000, 180000]}
+    unit: connections
+  - name: business.vrack_cross_dc_latency_ms
+    value: {uniform: [1.2, 18.0], round: 1}
+    unit: ms
+  - name: business.ddos_mitigation_events_per_min
+    value: {randint: [0, 120]}
+    unit: events/min
+  - name: business.gateway_snat_utilization_pct
+    value: {uniform: [15.0, 85.0], round: 2}
+    unit: "%"
+  - name: business.floating_ip_failover_count
+    value: {randint: [0, 4]}
+    unit: count
+  - name: business.private_network_packet_loss_pct
+    value: {uniform: [0.0, 0.5], round: 3}
+    unit: "%"
+  - name: business.connect_bandwidth_gbps
+    value: {uniform: [0.5, 9.5], round: 2}
+    unit: Gbps
+  - name: business.uptime_pct
+    value: {uniform: [99.5, 99.999], round: 4}
+    unit: "%"
+  - name: business.api_success_rate_pct
+    value: {uniform: [99.2, 99.99], round: 3}
+    unit: "%"
+  - name: business.network_sla_compliance_pct
+    value: {uniform: [98.5, 99.99], round: 3}
+    unit: "%"
+  - name: business.incident_mttd_min
+    value: {uniform: [0.8, 12.4], round: 2}
+    unit: min
+  - name: business.incident_mttr_min
+    value: {uniform: [4.5, 85.0], round: 1}
+    unit: min
+  - name: business.availability_index_0_100
+    value: {uniform: [88.0, 100.0], round: 2}
+    unit: index
+  - name: business.cloud_spend_eur_per_min
+    value: {uniform: [180.0, 2800.0], round: 1}
+    unit: EUR/min
+  - name: business.committed_resources_utilization_pct
+    value: {uniform: [62.0, 98.0], round: 2}
+    unit: "%"
+  - name: business.cost_per_million_requests_eur
+    value: {uniform: [0.8, 18.0], round: 2}
+    unit: EUR
+  - name: business.resource_efficiency_pct
+    value: {uniform: [58.0, 88.0], round: 2}
+    unit: "%"
+  - name: business.carbon_intensity_gco2_per_tib
+    value: {uniform: [0.4, 2.8], round: 3}
+    unit: gCO2/TiB
+  - name: business.customer_sla_breach_count
+    value: {randint: [0, 8]}
+    unit: count
+raw_log_profile:
+  service_name: ovh-gateway
+  user_id_prefix: usr
+  tier_field: support_tier
+  tier_values:
+  - - standard
+    - 55
+  - - premium
+    - 30
+  - - enterprise
+    - 15
+  country_weights:
+    FR: 25
+    DE: 15
+    GB: 10
+    NL: 8
+    BE: 8
+    US: 10
+    CA: 8
+    PL: 8
+    ES: 8
+  methods:
+  - GET
+  - POST
+  - PUT
+  - DELETE
+  paths:
+  - /v1/cloud/project/{id}/instances
+  - /v1/cloud/project/{id}/network/private
+  - /v1/cloud/project/{id}/loadbalancer
+  - /v1/vrack/{serviceName}
+  - /v1/cloud/project/{id}/kube
+  - /v1/cloud/project/{id}/operation
+  - /login
+  - /health
+  change_point_path: /v1/cloud/project/{id}/instances
+trace_attributes:
+  base:
+    ovh.project_id: {choice: [ovhnet-prod-001, ovhnet-prod-002, ovhnet-staging]}
+    ovh.datacenter: {choice: [GRA11, SBG5, BHS5]}
+  services:
+    vrack-network-manager:
+      vrack.service_name: {choice: [pn-ovhnet-prod, pn-ovhnet-staging]}
+      vrack.vlan_id: {randint: [100, 4094]}
+      vrack.subnet_cidr: {choice: [10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24]}
+      vrack.cross_dc_pair: {choice: [GRA-SBG, GRA-BHS, SBG-BHS]}
+      vrack.mtu: {choice: [1500, 9000]}
+    ovh-load-balancer:
+      lb.haproxy_backend: {choice: [ovhnet-be-web, ovhnet-be-api, ovhnet-be-grpc]}
+      lb.frontend_id: {choice: [ovhnet-fe-https, ovhnet-fe-tcp, ovhnet-fe-internal]}
+      lb.backend_count: {randint: [3, 12]}
+      lb.health_check_interval: {choice: [5, 10, 30]}
+      lb.protocol: {choice: [HTTPS, HTTP, TCP]}
+    anti-ddos-vac:
+      vac.scrubbing_center: {choice: [VAC-GRA, VAC-SBG, VAC-BHS, VAC-RBX]}
+      vac.mitigation_profile: {choice: [network, game, cdn]}
+      vac.permanent_mitigation: {choice: [true, false]}
+      vac.target_ip: {format: "198.51.100.{a}", a: {randint: [1, 254]}}
+    gateway-nat:
+      gw.snat_pool_id: {choice: [ovhnet-gw-gra, ovhnet-gw-sbg, ovhnet-gw-bhs]}
+      gw.external_ip_count: {randint: [1, 8]}
+      gw.port_allocation: {choice: [dynamic, static]}
+      gw.associated_network: {choice: [pn-ovhnet-prod, pn-ovhnet-staging]}
+    ovhcloud-connect:
+      connect.circuit_id: {format: "OCC-{n}", n: {randint: [100000, 999999]}}
+      connect.bandwidth_gbps: {choice: [1, 1, 10]}
+      connect.type: {choice: [dedicated, provider]}
+      connect.pop_location: {choice: [TH2-Paris, AM5-Amsterdam, BRU-Brussels]}
+    managed-kubernetes:
+      mks.cluster_id: {format: "mks-{n}", n: {randint: [10000, 99999]}}
+      mks.cluster_version: {choice: [v1.30.2, v1.29.6, v1.28.11]}
+      mks.node_pool_name: {choice: [ovhnet-pool-default, ovhnet-pool-compute, ovhnet-pool-memory]}
+      mks.node_flavor: {choice: [b3-8, b3-16, b3-32]}

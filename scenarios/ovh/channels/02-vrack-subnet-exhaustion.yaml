@@ -1,0 +1,61 @@
+name: vRack Subnet IP Exhaustion
+subsystem: core_network
+vehicle_section: ip_management
+error_type: VRACK-SUBNET-EXHAUSTION
+sensor_type: ip_allocation
+affected_services:
+- vrack-network-manager
+- gateway-nat
+cascade_services:
+- ovh-load-balancer
+description: Private network subnet approaching or exceeding available IP address capacity
+investigation_notes: |-
+  Root cause: A /24 subnet in the vRack private network is nearing exhaustion. OVHcloud private network subnets have a fixed CIDR range, and when DHCP allocations approach the limit, new instances and pods cannot obtain IP addresses. This typically happens during scale-up events when MKS node pools auto-scale or when multiple services are deployed simultaneously. Diagnose:
+    openstack subnet list --network <network_id>
+    openstack subnet show <subnet_id>  # check allocation_pools and total vs used
+    openstack port list --fixed-ip subnet_id=<subnet_id> --long
+    ovh-cli cloud project network private subnet list --networkId <networkId>
+  Check DHCP lease table:
+    openstack port list --status ACTIVE --fixed-ip subnet_id=<subnet_id> | wc -l
+  Remediation: Either expand the subnet CIDR range (requires recreating the subnet — disruptive) or add a secondary subnet to the same network:
+    openstack subnet create --network <network_id> --subnet-range 10.0.4.0/24 --dns-nameserver 213.186.33.99 ovhnet-subnet-overflow
+  For immediate relief, identify and clean up orphaned ports from deleted instances:
+    openstack port list --status DOWN --fixed-ip subnet_id=<subnet_id>
+    openstack port delete <orphaned_port_id>
+  Long-term: use /20 or /16 subnets for production workloads.
+remediation_action: reconfigure_subnet
+error_message: 'level=error ts={{timestamp}} caller=vrack_manager.go:156 msg="VRACK-SUBNET-EXHAUSTION" subnet={subnet_name}
+  used_ips={used_ips}/{total_ips} utilization={util_pct}% network={vrack_network} region={ovh_region}'
+stack_trace: "goroutine 198 [running]:\nruntime/debug.Stack()\n\t/usr/local/go/src/runtime/debug/stack.go:24 +0x5e\novhcloud.com/vrack/internal.(*SubnetMonitor).CheckCapacity(0xc000518000,\
+  \ {{0xc000b22480}}, {{0xc000b224c0}})\n\t/app/internal/vrack/subnet_monitor.go:156 +0x3a2\n  Subnet: {subnet_name}\n\
+  \  Used IPs: {used_ips}/{total_ips}\n  Utilization: {util_pct}%\n  Network: {vrack_network}\n  Region: {ovh_region}\n\
+  \  Action: Expand subnet or clean up orphaned ports"
+correlation_attr:
+  key: deployment.mks_autoscaler
+  value: autoscaler-v2.1-aggressive
+fault_params:
+  subnet_name: {choice: [ovhnet-subnet-gra, ovhnet-subnet-sbg, ovhnet-subnet-bhs]}
+  used_ips: {randint: [240, 254]}
+  total_ips: 254
+  util_pct: {uniform: [94.0, 100.0], round: 1}
+  vrack_network: {choice: [pn-ovhnet-prod, pn-ovhnet-staging]}
+  ovh_region: {choice: [GRA11, SBG5, BHS5]}
+rca_clues:
+  vrack-network-manager:
+    vrack.subnet_utilization_pct: {uniform: [94, 100], round: 1}
+    vrack.dhcp_offers_failed: {randint: [5, 30]}
+  gateway-nat:
+    gw.new_mapping_failed: true
+    gw.snat_ip_allocation: QUOTA_EXCEEDED
+  ovh-load-balancer:
+    lb.new_backend_registration: blocked
+    lb.pending_backends: {randint: [2, 8]}
+business_impact:
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.90, 0.97]}
+  - kpi: business.backend_health_pct
+    factor: {uniform: [0.70, 0.88]}
+  - kpi: business.gateway_snat_utilization_pct
+    factor: {uniform: [1.5, 2.5]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [1.5, 4.0]}

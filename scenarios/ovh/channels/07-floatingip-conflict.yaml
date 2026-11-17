@@ -1,0 +1,64 @@
+name: Floating IP Reassignment Conflict
+subsystem: core_network
+vehicle_section: ip_management
+error_type: VRACK-FLOATINGIP-CONFLICT
+sensor_type: ip_binding
+affected_services:
+- vrack-network-manager
+- ovh-load-balancer
+cascade_services:
+- managed-kubernetes
+description: Floating IP reassignment race condition causing split-brain routing between instances
+investigation_notes: |-
+  Root cause: During a maintenance window or failover event, a Floating IP was reassigned from one instance to another, but the Neutron L3 agent did not fully release the old binding before creating the new one. This creates a brief window where both instances respond to the same IP, causing split-brain routing — some packets reach the old instance, others reach the new one. This is a known edge case in OpenStack-based clouds when Floating IPs are reassigned rapidly. Diagnose:
+    openstack floating ip list --fixed-ip-address <ip>
+    openstack floating ip show <floating_ip_id>
+    openstack port show <port_id>  # check binding_host_id
+    # Check ARP tables on both instances:
+    openstack server ssh <instance> -- ip neigh show
+    # Check Neutron agent status:
+    openstack network agent list --agent-type l3
+  Remediation:
+    1. Force-disassociate the Floating IP from the old instance:
+       openstack floating ip unset --port <floating_ip_id>
+    2. Wait 30 seconds for ARP caches to clear, then reassociate:
+       openstack floating ip set --port <new_port_id> <floating_ip_id>
+    3. Flush ARP cache on affected routers:
+       openstack router set <router_id> --no-ha-vrrp  # trigger ARP refresh
+    4. If the issue persists, check the Neutron L3 agent logs via OVH support
+    5. For prevention, implement a Floating IP failover script that explicitly disassociates before reassociating with a configurable delay
+remediation_action: force_reassign_floatingip
+error_message: 'level=error ts={{timestamp}} caller=vrack_manager.go:342 msg="VRACK-FLOATINGIP-CONFLICT" floating_ip={floating_ip}
+  old_instance={old_instance} new_instance={new_instance} conflict_duration={conflict_duration_sec}s arp_state={arp_state}'
+stack_trace: "goroutine 189 [running]:\nruntime/debug.Stack()\n\t/usr/local/go/src/runtime/debug/stack.go:24 +0x5e\novhcloud.com/vrack/internal.(*FloatingIPMonitor).DetectConflict(0xc000718000,\
+  \ {{0xc000d12480}}, {{0xc000d124c0}})\n\t/app/internal/vrack/floatingip_monitor.go:342 +0x3a2\n  Floating IP: {floating_ip}\n\
+  \  Old Instance: {old_instance}\n  New Instance: {new_instance}\n  Conflict Duration: {conflict_duration_sec}s\n  ARP\
+  \ State: {arp_state}\n  Action: Force-disassociate and reassociate with delay"
+correlation_attr:
+  key: deployment.failover_script
+  value: ovhnet-failover-v1.3-beta
+fault_params:
+  floating_ip: {format: "57.128.42.{a}", a: {randint: [1, 254]}}
+  old_instance: {choice: [ovhnet-web-01, ovhnet-api-01, ovhnet-proxy-01]}
+  new_instance: {choice: [ovhnet-web-02, ovhnet-api-02, ovhnet-proxy-02]}
+  conflict_duration_sec: {randint: [5, 45]}
+  arp_state: {choice: [STALE, INCOMPLETE, REACHABLE]}
+rca_clues:
+  vrack-network-manager:
+    vrack.floatingip_bindings: 2
+    vrack.arp_conflict_detected: true
+  ovh-load-balancer:
+    lb.backend_ip_mismatch: true
+    lb.split_brain_responses: {randint: [100, 5000]}
+  managed-kubernetes:
+    mks.ingress_endpoint_stale: true
+    mks.service_loadbalancer_pending: {randint: [1, 3]}
+business_impact:
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.92, 0.98]}
+  - kpi: business.lb_5xx_error_rate_pct
+    factor: {uniform: [3.0, 15.0]}
+  - kpi: business.floating_ip_failover_count
+    factor: {uniform: [3.0, 10.0]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [1.0, 3.0]}

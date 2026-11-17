@@ -1,0 +1,393 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Script Demo OVH</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+
+<style>
+  :root {
+    --bg: #fafaf9;
+    --fg: #1c1917;
+    --fg-muted: #78716c;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --accent: #0967d2;
+    --accent-bg: #dbeafe;
+    --green: #16a34a;
+    --green-bg: #dcfce7;
+    --amber: #d97706;
+    --amber-bg: #fef3c7;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --purple: #7c3aed;
+    --purple-bg: #ede9fe;
+    --font-display: 'Space Grotesk', system-ui, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c0a09; --fg: #e7e5e4; --fg-muted: #a8a29e;
+      --surface: #1c1917; --border: #292524; --accent: #60a5fa; --accent-bg: #172554;
+      --green: #4ade80; --green-bg: #052e16; --amber: #fbbf24; --amber-bg: #451a03;
+      --red: #f87171; --red-bg: #450a0a; --purple: #a78bfa; --purple-bg: #2e1065;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c0a09; --fg: #e7e5e4; --fg-muted: #a8a29e;
+    --surface: #1c1917; --border: #292524; --accent: #60a5fa; --accent-bg: #172554;
+    --green: #4ade80; --green-bg: #052e16; --amber: #fbbf24; --amber-bg: #451a03;
+    --red: #f87171; --red-bg: #450a0a; --purple: #a78bfa; --purple-bg: #2e1065;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: var(--font-body); font-size: 15px; line-height: 1.7;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 2rem;
+    max-width: 780px; margin: 0 auto;
+  }
+  h1 { font-family: var(--font-display); font-size: 1.75rem; font-weight: 700; margin: 0 0 0.25rem; text-wrap: balance; line-height: 1.2; }
+  h2 { font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; margin: 2.5rem 0 0.75rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--border); text-wrap: balance; }
+  h3 { font-family: var(--font-display); font-size: 0.95rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+  .subtitle { color: var(--fg-muted); font-size: 0.95rem; margin: 0 0 2rem; }
+  p { margin: 0.75rem 0; }
+
+  .action {
+    background: var(--accent-bg); border-left: 3px solid var(--accent); padding: 0.6rem 0.9rem;
+    border-radius: 0 6px 6px 0; margin: 0.75rem 0; font-size: 0.875rem;
+  }
+  .action::before { content: "ACTION → "; font-weight: 600; color: var(--accent); }
+
+  .speak {
+    background: var(--surface); border: 1px solid var(--border); padding: 0.75rem 1rem;
+    border-radius: 8px; margin: 0.75rem 0; font-style: italic; position: relative;
+  }
+
+  .prompt-box {
+    background: var(--purple-bg); border-left: 3px solid var(--purple); padding: 0.6rem 0.9rem;
+    border-radius: 0 6px 6px 0; margin: 0.75rem 0; font-size: 0.875rem; font-family: monospace;
+  }
+  .prompt-box::before { content: "PROMPT → "; font-weight: 600; color: var(--purple); font-family: var(--font-body); }
+
+  .note {
+    background: var(--amber-bg); border-left: 3px solid var(--amber); padding: 0.6rem 0.9rem;
+    border-radius: 0 6px 6px 0; margin: 0.75rem 0; font-size: 0.875rem;
+  }
+  .note::before { content: "NOTE : "; font-weight: 600; color: var(--amber); }
+
+  .phase {
+    display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem;
+    border-radius: 10px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.25rem;
+  }
+  .phase-hitl { background: var(--red-bg); color: var(--red); }
+  .phase-auto { background: var(--green-bg); color: var(--green); }
+  .phase-elastic { background: var(--accent-bg); color: var(--accent); }
+
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 1.5rem 0; }
+  .meta-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }
+  .meta-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-muted); font-weight: 600; }
+  .meta-value { font-family: var(--font-display); font-weight: 600; font-size: 1rem; margin-top: 0.15rem; }
+
+  .timeline { border-left: 2px solid var(--border); padding-left: 1.25rem; margin: 1rem 0 1rem 0.5rem; }
+  .timeline-item { position: relative; margin: 1.25rem 0; }
+  .timeline-item::before { content: ""; position: absolute; left: -1.55rem; top: 0.45rem; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
+
+  .esql-tabs { margin: 0.75rem 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .esql-tab {
+    display: inline-block; padding: 0.4rem 0.9rem; font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; border-bottom: 2px solid transparent; color: var(--fg-muted);
+    font-family: var(--font-body);
+  }
+  .esql-tab.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--surface); }
+  .esql-panel {
+    display: none; margin: 0; padding: 0.75rem 1rem; font-size: 0.82rem; line-height: 1.6;
+    background: var(--surface); overflow-x: auto; white-space: pre; font-family: monospace;
+  }
+  .esql-panel.active { display: block; }
+
+  code { font-size: 0.85em; background: var(--surface); border: 1px solid var(--border); padding: 0.1em 0.35em; border-radius: 4px; }
+  strong { font-weight: 600; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+  @media (max-width: 600px) {
+    .meta-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<h1>OVHcloud Network Operations — Script de demo complet</h1>
+<p class="subtitle">Elastic Observability + Reponse aux incidents assistee par IA sur infrastructure OVHcloud</p>
+
+<div class="meta-grid">
+  <div class="meta-card">
+    <div class="meta-label">Incident principal (HITL)</div>
+    <div class="meta-value">CH-01 : vRack VLAN Segmentation</div>
+  </div>
+  <div class="meta-card">
+    <div class="meta-label">Incident secondaire (Auto)</div>
+    <div class="meta-value">CH-12 : LB Health Check Flap</div>
+  </div>
+  <div class="meta-card">
+    <div class="meta-label">Code erreur</div>
+    <div class="meta-value" style="font-family:monospace">VRACK-VLAN-SEGMENTATION</div>
+  </div>
+  <div class="meta-card">
+    <div class="meta-label">Duree</div>
+    <div class="meta-value">~12 minutes</div>
+  </div>
+</div>
+
+<div class="note">Avant de commencer : injecter <strong>CH-01 (vRack VLAN Segmentation)</strong> en mode Cascading Failure depuis la Chaos Console. Injecter egalement <strong>CH-12 (LB Health Check Flap)</strong> en mode Calibration Drift — celui-ci s'auto-remedie en arriere-plan et sera revele a la fin.</div>
+
+<hr>
+
+<h2>Acte 1 — L'impact metier</h2>
+<span class="phase phase-elastic">Application Cockpit</span>
+
+<div class="speak">
+Dans l'environnement actuel, chaque application a sa propre architecture — des monolithes historiques aux microservices cloud-native, deployes on-premise, dans le cloud ou dans des environnements hybrides. Les observer toutes a travers un seul tableau de bord est deja un defi ; mais correler les signaux techniques avec l'impact business tout en evaluant la consommation du budget d'incidents est critique pour toute entreprise.
+<br><br>
+La capacite unique d'Elastic a ingerer tout type de donnee dans sa base Search AI en fait le socle ideal pour une vue a 360 degres.
+<br><br>
+En regardant notre cockpit applicatif, qui combine signaux techniques et business pour montrer l'etat de bout en bout de nos operations reseau OVHcloud, on constate que notre SLO applicatif brule rapidement et impacte directement le business. La latence cross-DC du vRack a explose, la sante des backends chute, et notre SLO d'uptime est en breach.
+<br><br>
+En tant que SRE, notre mission est d'analyser l'incident, d'executer la remediation et de livrer une analyse de cause racine — le tout pendant que les dirigeants suivent le SLO en temps reel.
+</div>
+
+<div class="action">Montrer les tuiles KPI : la <strong>latence cross-DC du vRack</strong> est passee de ~5ms a 100ms+, le <strong>Backend health %</strong> est tombe sous 60%, l'<strong>Uptime %</strong> est en breach SLO. Les graphiques de tendance montrent le moment exact de l'injection de la panne.</div>
+
+<hr>
+
+<h2>Acte 2 — Trouver l'aiguille dans la botte de foin</h2>
+<span class="phase phase-elastic">Discover</span>
+
+<div class="action">Naviguer vers <strong>Discover</strong>. Dans l'editeur ES|QL, saisir la requete du <strong>Tab 1</strong> ci-dessous.</div>
+
+<div class="esql-tabs">
+<div class="esql-tab active" onclick="this.parentElement.querySelectorAll('.esql-tab,.esql-panel').forEach(e=>e.classList.remove('active'));this.classList.add('active');this.parentElement.querySelector('#tab1').classList.add('active')">Tab 1 — Source de donnees</div>
+<div class="esql-tab" onclick="this.parentElement.querySelectorAll('.esql-tab,.esql-panel').forEach(e=>e.classList.remove('active'));this.classList.add('active');this.parentElement.querySelector('#tab2').classList.add('active')">Tab 2 — Categorisation ML</div>
+<pre class="esql-panel active" id="tab1">FROM logs.otel.ovhnet, logs.otel.ovhnet.*, logs.ecs.ovhnet, logs.ecs.ovhnet.*
+// Focus on ERROR log messages</pre>
+<pre class="esql-panel" id="tab2">FROM logs.otel.ovhnet, logs.otel.ovhnet.*, logs.ecs.ovhnet, logs.ecs.ovhnet.*
+| WHERE log.level == "ERROR"
+| STATS count=COUNT() BY category=CATEGORIZE(body.text)
+| SORT count DESC</pre>
+</div>
+
+<div class="speak">
+Dans l'environnement actuel, le parcours d'un SRE peut commencer n'importe ou dans Elastic. Voyons comment Elastic permet aux SRE de trouver l'aiguille dans la botte de foin parmi le volume massif de logs recus chaque jour, grace aux capacites agentiques d'Elastic.
+<br><br>
+Elastic offre une exploration approfondie des donnees a travers differents signaux via Kibana et ES|QL, notre langage de requete. S'il y a toujours une courbe d'apprentissage avec toute nouvelle solution, les capacites agentiques d'Elastic abaissent cette barriere en traduisant le langage naturel en requetes — rendant l'exploration des donnees accessible a tous.
+<br><br>
+Voyons cela en action. Avec la requete ES|QL du <strong>Tab 1</strong>, je cible uniquement le namespace reseau OVH — filtrant ainsi tout autre scenario en cours sur la plateforme. On voit immediatement un pic soudain dans le volume de logs.
+</div>
+
+<div class="prompt-box">Focus on ERROR log messages</div>
+
+<div class="speak">
+Grace aux capacites IA d'Elastic, j'exprime simplement mon intention et l'assistant la traduit dans le bon filtre ES|QL. On voit une forte augmentation des messages ERROR — mais comment identifier quelle erreur specifique provoque ce pic ?
+<br><br>
+C'est la que la categorisation par Machine Learning entre en jeu. En passant au <strong>Tab 2</strong>, j'utilise la fonction <code>CATEGORIZE()</code> d'ES|QL pour regrouper automatiquement les logs d'erreur par pattern et les trier par nombre — identifiant la categorie exacte derriere la montee en charge.
+</div>
+
+<div class="action">Basculer vers la requete du <strong>Tab 2</strong> dans l'editeur ES|QL — ou cliquer sur <strong>"Machine Learning Categorisation"</strong> dans Discover.</div>
+
+<div class="speak">
+Parfait — on voit maintenant clairement quelle categorie provoque le pic. Plongeons dans l'investigation.
+</div>
+
+<div class="action">Cliquer sur le <strong>bouton d'expansion</strong> sur une trace contenant l'erreur.</div>
+
+<div class="speak">
+Le champ <code>body.text</code> contient des donnees non structurees ou se trouve notre message d'erreur.
+</div>
+
+<div class="action">Developper le message pour reveler l'erreur complete.</div>
+
+<div class="speak">
+<code>VRACK-VLAN-SEGMENTATION</code> semble etre la raison derriere le pic. Le log nous indique qu'il y a un desaccord de tagging VLAN entre les datacenters — les instances de GRA11 ne peuvent pas joindre les instances de SBG5 via le reseau prive vRack, avec 85% de perte de paquets.
+<br><br>
+Mais qu'est-ce que cela signifie concretement, et d'ou ca vient ? La reponse se trouve dans les traces applicatives, ou les donnees sont correlees a travers l'ensemble de l'application — rendant la transaction lisible de bout en bout.
+<br><br>
+Et si on pouvait demander a notre agent de realiser une premiere analyse d'erreur ?
+</div>
+
+<hr>
+
+<h2>Acte 3 — Analyse assistee par IA</h2>
+<span class="phase phase-elastic">AI Assistant</span>
+
+<div class="action">Cliquer sur <strong>"Explain this log entry"</strong>.</div>
+
+<div class="speak">
+Grace au Context Engine IA d'Elastic, l'agent dispose du contexte complet et de competences specialisees pour executer une analyse detaillee — determinant une cause racine initiale a partir du message d'erreur non structure, evaluant l'impact et proposant les prochaines etapes appropriees.
+<br><br>
+L'agent identifie que l'erreur <code>VRACK-VLAN-SEGMENTATION</code> est causee par un desaccord de tagging VLAN entre les datacenters GRA et SBG. Il voit la cascade : la segmentation vRack rend les backends de l'OVHcloud Load Balancer a SBG injoignables, les pods MKS passent en CrashLoopBackOff car les services cross-DC sont coupes, et le Gateway NAT reroute le trafic sortant via l'internet public en mode fallback.
+<br><br>
+Cela nous donne une solide analyse de premier niveau. Maintenant, transformons cela en un case officiel pour lancer un incident formel.
+</div>
+
+<div class="action">Cliquer sur <strong>"Start conversation"</strong>.</div>
+
+<div class="speak">
+On entre maintenant dans une experience conversationnelle ou l'on peut interagir directement avec notre agent OVHcloud Network Analyst, qui conserve le contexte de l'analyse precedente pour agir sur nos demandes. Ici, on souhaite creer un dashboard pour suivre ce message d'ERROR specifique afin d'avoir des preuves claires une fois le probleme resolu. Demandons-lui de le construire.
+</div>
+
+<div class="prompt-box">Create a dashboard to track progress of this VRACK-VLAN-SEGMENTATION issue</div>
+
+<div class="action">Une fois cree, cliquer sur l'<strong>apercu du dashboard</strong>.</div>
+
+<div class="speak">
+Grace a l'agent, nous disposons maintenant d'un dashboard dedie pour suivre la resolution de notre probleme de segmentation VLAN vRack — affichant le taux d'erreur dans le temps, les datacenters affectes et les tendances de latence cross-DC.
+</div>
+
+<div class="action">Sauvegarder le dashboard.</div>
+
+<hr>
+
+<h2>Acte 4 — Creation du case et runbook</h2>
+<span class="phase phase-hitl">Human-in-the-Loop</span>
+
+<div class="speak">
+On peut maintenant transformer ce contexte et ce dashboard en un case actionnable pour suivre la resolution et construire le RCA final. Demandons a l'agent de s'en charger.
+</div>
+
+<div class="prompt-box">Create an observability case and link the dashboard to track the resolution. Find the appropriate remediation actions from the internal runbook.</div>
+
+<div class="action">Cliquer sur <strong>"Go to case"</strong>.</div>
+
+<div class="speak">
+Toutes les conclusions ont ete collectees et consolidees dans un seul case complet — contenant non seulement les details de notre investigation, mais aussi les etapes de remediation exactes extraites de notre runbook interne.
+<br><br>
+Le runbook prescrit de verifier les VLAN IDs a travers tous les datacenters en utilisant le CLI OVH et les commandes OpenStack, de verifier la coherence de la configuration vRack, et si necessaire, de re-appliquer le tagging VLAN via l'API OVH. Le runbook indique que cette remediation necessite une approbation manuelle — le vRack est l'epine dorsale de notre reseau prive, toute reconfiguration doit etre validee par un SRE.
+</div>
+
+<hr>
+
+<h2>Acte 5 — La revelation : l'auto-remediation tournait deja</h2>
+<span class="phase phase-auto">Auto-Remediate</span>
+
+<div class="speak">
+Jusqu'a present, nous avons vu comment les capacites IA d'Elastic permettent aux SRE d'accelerer drastiquement le temps moyen de detection et de resolution. Mais et si le systeme pouvait se guerir tout seul ?
+<br><br>
+C'est en fait ce qui se passait en arriere-plan pendant notre investigation : un second incident — <code>LB-HEALTHCHECK-FLAP</code> — a ete detecte, trie et analyse automatiquement, avec une analyse de cause racine complete et un score de confiance etaye par des preuves. Les health checks HAProxy oscillaient a cause de sondes de readiness des backends echouant durant la perturbation vRack. Le systeme a identifie cela comme une condition auto-guerissante : une fois l'oscillation stabilisee, les backends se retablissent automatiquement via le mecanisme rise/fall natif de HAProxy.
+<br><br>
+Tout cela a ete conditionne dans un case, attendant simplement que le SRE approuve la remediation du runbook pour le probleme principal du vRack.
+<br><br>
+Trop beau pour etre vrai ? Allons voir.
+</div>
+
+<div class="action">Cliquer sur la <strong>notification email</strong> dans votre boite de reception → cliquer sur le <strong>Case</strong> (montrer brievement le contenu) → cliquer sur <strong>"conversation"</strong> → <strong>valider la remediation</strong>.</div>
+
+<div class="speak">
+Le workflow a maintenant execute le plan de remediation base sur le runbook interne et suivi la progression — gardant le case continuellement a jour jusqu'a la resolution complete. Conformement aux directives du runbook, cette remediation a impose une validation humaine avec un controle "human-in-the-loop" avant de declencher le correctif de reconfiguration vRack.
+</div>
+
+<div class="action">Revenir au <strong>case ou au cockpit</strong> et observer la resolution. La latence cross-DC du vRack revient a la normale, la sante des backends remonte a 100%, le SLO d'uptime arrete de bruler.</div>
+
+<hr>
+
+<h2>Acte 6 — Conclusion</h2>
+
+<div class="speak">
+Dans cette demonstration, vous avez vu comment les capacites agentiques natives d'Elastic permettent aux SRE d'aller de la detection de l'aiguille dans les logs jusqu'a la resolution complete d'incident sur une infrastructure OVHcloud — tout en conservant le controle humain sur les remediations critiques.
+<br><br>
+Du reseau prive vRack au load balancing HAProxy, du scrubbing Anti-DDoS VAC a la connectivite hybride OVHcloud Connect — Elastic observe tout a travers une seule plateforme, correle les signaux entre services et datacenters, et utilise l'IA pour accelerer chaque etape du cycle de vie des incidents.
+</div>
+
+<hr>
+
+<h2>Annexe — Chronologie de la demo</h2>
+
+<div class="timeline">
+  <div class="timeline-item">
+    <strong>T-0:00</strong> — Injecter CH-01 (vRack VLAN Segmentation, HITL) + CH-12 (LB Health Check Flap, Auto) depuis la Chaos Console
+  </div>
+  <div class="timeline-item">
+    <strong>T+0:30</strong> — Ouvrir l'Application Cockpit, montrer le SLO qui brule et l'impact KPI
+  </div>
+  <div class="timeline-item">
+    <strong>T+1:30</strong> — Naviguer vers Discover, executer la requete ES|QL Tab 1 sur le namespace ovhnet, montrer le pic de logs
+  </div>
+  <div class="timeline-item">
+    <strong>T+3:00</strong> — Executer la requete ES|QL Tab 2 (CATEGORIZE) → identifier VRACK-VLAN-SEGMENTATION
+  </div>
+  <div class="timeline-item">
+    <strong>T+4:00</strong> — Developper l'entree de log, montrer body.text, cliquer sur "Explain this log entry"
+  </div>
+  <div class="timeline-item">
+    <strong>T+5:30</strong> — Analyse IA : cause racine, impact en cascade, prochaines etapes
+  </div>
+  <div class="timeline-item">
+    <strong>T+6:30</strong> — Start conversation → demander a l'agent de creer un dashboard de suivi
+  </div>
+  <div class="timeline-item">
+    <strong>T+8:00</strong> — Demander a l'agent de creer un case avec remediation runbook
+  </div>
+  <div class="timeline-item">
+    <strong>T+9:30</strong> — Revelation : l'auto-remediation de CH-12 tournait en arriere-plan
+  </div>
+  <div class="timeline-item">
+    <strong>T+10:30</strong> — Notification email → approuver la remediation HITL pour CH-01
+  </div>
+  <div class="timeline-item">
+    <strong>T+11:30</strong> — Observer la resolution sur le cockpit : les metriques se retablissent, le SLO arrete de bruler
+  </div>
+  <div class="timeline-item">
+    <strong>T+12:00</strong> — Conclusion
+  </div>
+</div>
+
+<hr>
+
+<h2>Annexe — Correspondance OVH / GCP pour les presentateurs</h2>
+
+<p>Si vous avez deja presente la version GCP, voici comment les elements correspondent :</p>
+
+<div style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin:0.75rem 0;">
+<tr style="border-bottom:2px solid var(--border);">
+  <th style="text-align:left;padding:0.5rem;font-family:var(--font-display);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--fg-muted);">Element</th>
+  <th style="text-align:left;padding:0.5rem;font-family:var(--font-display);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--fg-muted);">Version GCP</th>
+  <th style="text-align:left;padding:0.5rem;font-family:var(--font-display);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--fg-muted);">Version OVH</th>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:0.5rem;">Incident principal</td>
+  <td style="padding:0.5rem;"><code>VPC-ROUTE-LIMIT-EXCEEDED</code></td>
+  <td style="padding:0.5rem;"><code>VRACK-VLAN-SEGMENTATION</code></td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:0.5rem;">Auto-remediation</td>
+  <td style="padding:0.5rem;">CH-16 Backend Unhealthy</td>
+  <td style="padding:0.5rem;">CH-12 LB Health Check Flap</td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:0.5rem;">Cause racine</td>
+  <td style="padding:0.5rem;">Limite de 250 routes VPC peering</td>
+  <td style="padding:0.5rem;">Desaccord de tagging VLAN vRack entre DCs</td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:0.5rem;">CLI du runbook</td>
+  <td style="padding:0.5rem;"><code>gcloud compute networks peerings list-routes</code></td>
+  <td style="padding:0.5rem;"><code>ovh-cli vrack get</code> / <code>openstack network list</code></td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:0.5rem;">Impact KPI</td>
+  <td style="padding:0.5rem;">CDN cache hit rate, Cloud Armor blocks</td>
+  <td style="padding:0.5rem;">Latence cross-DC vRack, Backend health %</td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:0.5rem;">Cascade</td>
+  <td style="padding:0.5rem;">VPC → LB → NAT</td>
+  <td style="padding:0.5rem;">vRack → LB → MKS</td>
+</tr>
+<tr>
+  <td style="padding:0.5rem;">Agent IA</td>
+  <td style="padding:0.5rem;">Google Cloud Network Analyst</td>
+  <td style="padding:0.5rem;">OVHcloud Network Analyst</td>
+</tr>
+</table>
+</div>
+
+</body></html>

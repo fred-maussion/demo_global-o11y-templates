@@ -1,0 +1,239 @@
+service: managed-kubernetes
+sort_order: 6
+cloud_provider: ovh
+cloud_region: BHS5
+cloud_platform: ovh_public_cloud
+cloud_availability_zone: BHS5
+subsystem: orchestration
+language: go
+topology:
+- - ovh-load-balancer
+  - /api/v1/lb/ingress-status
+  - GET
+- - vrack-network-manager
+  - /api/v1/vrack/cni-status
+  - GET
+entry_endpoints:
+- - /api/v1/mks/cluster-status
+  - GET
+- - /api/v1/mks/node-pools
+  - GET
+- - /api/v1/mks/pods
+  - GET
+db_operations:
+- - SELECT
+  - mks_nodes
+  - SELECT node_id, pool_name, flavor, status, conditions FROM mks_nodes WHERE cluster_id = ? AND pool_name = ?
+- - SELECT
+  - mks_pods
+  - SELECT pod_id, namespace, name, phase, restart_count FROM mks_pods WHERE cluster_id = ? AND namespace = ?
+- - UPDATE
+  - mks_node_conditions
+  - UPDATE mks_node_conditions SET status = ?, last_transition = NOW() WHERE node_id = ? AND condition_type = ?
+emit_fault_logs: true
+kpi_emitter: false
+constants:
+  NODE_POOLS:
+  - ovhnet-pool-default
+  - ovhnet-pool-compute
+  - ovhnet-pool-memory
+  NAMESPACES:
+  - ovhnet-prod
+  - ovhnet-staging
+  - kube-system
+  - monitoring
+steps:
+- sample:
+    pool:
+      choice: NODE_POOLS
+    nodes_ready:
+      if_active:
+        randint:
+        - 1
+        - 3
+      else:
+        randint:
+        - 4
+        - 8
+    nodes_total:
+      randint:
+      - 6
+      - 10
+- metric:
+    name: mks.nodes_ready
+    value:
+      var: nodes_ready
+    unit: nodes
+- metric:
+    name: mks.nodes_total
+    value:
+      var: nodes_total
+    unit: nodes
+- log:
+    level: INFO
+    message: 'mks-monitor: pool={pool} nodes_ready={nodes_ready}/{nodes_total} cluster=ovhnet-mks-bhs'
+    attrs:
+      operation: node_monitor
+      mks.pool:
+        var: pool
+      mks.nodes_ready:
+        var: nodes_ready
+      mks.nodes_total:
+        var: nodes_total
+- sample:
+    namespace:
+      choice: NAMESPACES
+    pods_running:
+      if_active:
+        randint:
+        - 10
+        - 30
+      else:
+        randint:
+        - 40
+        - 80
+    pods_pending:
+      if_active:
+        randint:
+        - 5
+        - 20
+      else:
+        randint:
+        - 0
+        - 2
+    pod_restarts:
+      if_active:
+        randint:
+        - 10
+        - 50
+      else:
+        randint:
+        - 0
+        - 3
+- metric:
+    name: mks.pods_running
+    value:
+      var: pods_running
+    unit: pods
+- metric:
+    name: mks.pods_pending
+    value:
+      var: pods_pending
+    unit: pods
+- metric:
+    name: mks.pod_restarts
+    value:
+      var: pod_restarts
+    unit: restarts
+- log:
+    level: INFO
+    message: 'mks-pods: namespace={namespace} running={pods_running} pending={pods_pending} restarts={pod_restarts}'
+    attrs:
+      operation: pod_monitor
+      mks.namespace:
+        var: namespace
+      mks.pods_running:
+        var: pods_running
+      mks.pods_pending:
+        var: pods_pending
+      mks.pod_restarts:
+        var: pod_restarts
+- sample:
+    node_cpu_pct:
+      if_active:
+        uniform:
+        - 85.0
+        - 99.0
+        round: 1
+      else:
+        uniform:
+        - 20.0
+        - 65.0
+        round: 1
+    node_memory_pct:
+      if_active:
+        uniform:
+        - 88.0
+        - 99.5
+        round: 1
+      else:
+        uniform:
+        - 30.0
+        - 70.0
+        round: 1
+- metric:
+    name: mks.node_cpu_pct
+    value:
+      var: node_cpu_pct
+    unit: '%'
+- metric:
+    name: mks.node_memory_pct
+    value:
+      var: node_memory_pct
+    unit: '%'
+- log:
+    level: INFO
+    message: 'mks-resources: pool={pool} cpu={node_cpu_pct}% memory={node_memory_pct}% flavor=b3-16'
+    attrs:
+      operation: resource_monitor
+      mks.node_cpu_pct:
+        var: node_cpu_pct
+      mks.node_memory_pct:
+        var: node_memory_pct
+# --- Background noise: WARN + unrelated ERROR ---
+- sample:
+    noise_ns:
+      choice: NAMESPACES
+    noise_pool:
+      choice: NODE_POOLS
+    eviction_count:
+      randint:
+      - 1
+      - 8
+    image_pull_ms:
+      randint:
+      - 500
+      - 15000
+    hpa_replicas:
+      randint:
+      - 2
+      - 12
+    hpa_target_cpu:
+      choice:
+      - 60
+      - 70
+      - 80
+- log:
+    level: INFO
+    message: 'mks-hpa: namespace={noise_ns} deployment=ovhnet-app replicas={hpa_replicas} target_cpu={hpa_target_cpu}% status=SCALING'
+    attrs:
+      operation: hpa_scaling
+      mks.namespace:
+        var: noise_ns
+      mks.hpa_replicas:
+        var: hpa_replicas
+- log:
+    level: INFO
+    message: 'mks-image-pull: namespace={noise_ns} image=registry.ovhnet.internal/app:v2.14.3 duration={image_pull_ms}ms cached=false'
+    attrs:
+      operation: image_pull
+      mks.namespace:
+        var: noise_ns
+      mks.image_pull_ms:
+        var: image_pull_ms
+- log:
+    level: WARN
+    message: 'mks-eviction: pool={noise_pool} evicted_pods={eviction_count} reason=DiskPressure threshold=85% node=node-42817'
+    attrs:
+      operation: eviction_warning
+      mks.pool:
+        var: noise_pool
+      mks.eviction_count:
+        var: eviction_count
+- log:
+    level: ERROR
+    message: 'mks-cni-plugin: namespace={noise_ns} pod=ovhnet-app-71523 error=IPAM_EXHAUSTION subnet=10.0.8.0/22 available_ips=0'
+    attrs:
+      operation: cni_plugin_error
+      mks.namespace:
+        var: noise_ns

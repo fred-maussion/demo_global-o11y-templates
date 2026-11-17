@@ -1,0 +1,74 @@
+name: LB Backend Drain Storm
+subsystem: traffic_management
+vehicle_section: haproxy_backends
+error_type: LB-BACKEND-DRAIN-STORM
+sensor_type: health_check
+affected_services:
+- ovh-load-balancer
+- managed-kubernetes
+cascade_services:
+- gateway-nat
+description: Rolling MKS node pool upgrade draining too many load balancer backends simultaneously
+investigation_notes: |-
+  Root cause: A Managed Kubernetes node pool upgrade is draining nodes faster than new ones come up. HAProxy health checks mark backends as DOWN in quick succession, reducing available capacity below the minimum threshold. This occurs when PodDisruptionBudgets are too permissive or absent, allowing the MKS autoscaler to drain multiple nodes simultaneously. Diagnose:
+    ovh-cli cloud project kube node-pool list --kubeId <cluster_id>
+    ovh-cli cloud project kube node-pool get --kubeId <cluster_id> --nodePoolId <pool_id>
+    kubectl get nodes -o wide  # check node status and age
+    kubectl get pdb --all-namespaces  # check PodDisruptionBudgets
+    kubectl get events --sort-by='.lastTimestamp' | grep -i drain
+  Check HAProxy backend status:
+    GET /cloud/project/{serviceName}/loadbalancer/{loadbalancerId}/pool/{poolId}/member
+    # or via HAProxy stats socket if accessible:
+    echo "show stat" | socat stdio /var/lib/haproxy/stats
+  Remediation:
+    1. Pause the node pool upgrade:
+       ovh-cli cloud project kube node-pool update --kubeId <cluster_id> --nodePoolId <pool_id> --desiredNodes <current_count>
+    2. Add PodDisruptionBudgets to prevent simultaneous drains:
+       kubectl apply -f - <<< '{"apiVersion":"policy/v1","kind":"PodDisruptionBudget","metadata":{"name":"app-pdb"},"spec":{"minAvailable":"75%","selector":{"matchLabels":{"app":"ovhnet"}}}}'
+    3. Scale up the node pool before resuming upgrade to maintain capacity:
+       ovh-cli cloud project kube node-pool update --kubeId <cluster_id> --nodePoolId <pool_id> --desiredNodes <current+2>
+    4. Resume upgrade with surge settings configured.
+remediation_action: pause_node_upgrade
+error_message: '[HAProxy] LB-BACKEND-DRAIN-STORM frontend={lb_frontend} backend_service={lb_backend} unhealthy={lb_unhealthy}/{lb_total}
+  drain_rate={drain_rate}/min health_check={health_check} region={ovh_region}'
+stack_trace: |-
+  HAProxy Backend Health Report
+  ------------------------------
+  Frontend:         {lb_frontend}
+  Backend Service:  {lb_backend}
+  Unhealthy:        {lb_unhealthy}/{lb_total}
+  Drain Rate:       {drain_rate}/min
+  Health Check:     {health_check}
+  Region:           {ovh_region}
+  MKS Upgrade:      IN_PROGRESS
+  Action: Pause node pool upgrade and add PodDisruptionBudgets
+correlation_attr:
+  key: deployment.mks_upgrade_batch
+  value: upgrade-v1.30-batch3
+fault_params:
+  lb_frontend: {choice: [ovhnet-fe-https, ovhnet-fe-tcp, ovhnet-fe-internal]}
+  lb_backend: {choice: [ovhnet-be-web, ovhnet-be-api, ovhnet-be-grpc]}
+  lb_unhealthy: {randint: [4, 8]}
+  lb_total: {randint: [6, 10]}
+  drain_rate: {randint: [2, 6]}
+  health_check: {choice: [hc-http-8080, hc-https-443, hc-tcp-3000]}
+  ovh_region: {choice: [GRA11, SBG5, BHS5]}
+rca_clues:
+  ovh-load-balancer:
+    lb.consecutive_backend_drains: {randint: [3, 8]}
+    lb.capacity_pct: {uniform: [15.0, 40.0], round: 1}
+  managed-kubernetes:
+    mks.nodes_draining: {randint: [2, 5]}
+    mks.upgrade_in_progress: true
+  gateway-nat:
+    gw.outbound_queue_depth: {randint: [500, 5000]}
+    gw.connection_timeout_rate: {uniform: [5.0, 25.0], round: 1}
+business_impact:
+  - kpi: business.backend_health_pct
+    factor: {uniform: [0.20, 0.50]}
+  - kpi: business.lb_5xx_error_rate_pct
+    factor: {uniform: [5.0, 20.0]}
+  - kpi: business.lb_latency_p50_ms
+    factor: {uniform: [3.0, 12.0]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [3.0, 8.0]}

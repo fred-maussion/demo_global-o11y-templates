@@ -1,0 +1,68 @@
+name: LB SSL Certificate Renewal
+subsystem: traffic_management
+vehicle_section: ssl_termination
+error_type: LB-SSL-CERT-RENEWAL
+sensor_type: certificate
+affected_services:
+- ovh-load-balancer
+- vrack-network-manager
+cascade_services:
+- anti-ddos-vac
+description: Let's Encrypt SSL certificate auto-renewal triggering brief HAProxy reload
+investigation_notes: |-
+  Root cause: The Let's Encrypt DV certificate attached to the OVHcloud Load Balancer is approaching expiry and the auto-renewal process has triggered. OVHcloud Load Balancer includes free Let's Encrypt certificates that auto-renew. During renewal, HAProxy performs a configuration reload which causes a brief connection disruption (typically <1s for established connections using connection draining). If the ACME HTTP-01 challenge fails (e.g., because the well-known path is blocked or DNS doesn't resolve), the renewal will retry. Diagnose:
+    GET /cloud/project/{serviceName}/loadbalancer/{loadbalancerId}/certificate
+    ovh-cli cloud project loadbalancer certificate list --loadbalancerId <lb_id>
+    # Check certificate expiry:
+    echo | openssl s_client -connect <lb_ip>:443 2>/dev/null | openssl x509 -noout -dates
+  Remediation: This is auto-remediated:
+    1. Let's Encrypt renews certificates automatically 30 days before expiry
+    2. HAProxy reloads gracefully with the new certificate
+    3. Established connections drain over the configured timeout
+    4. If renewal fails, check that:
+       - Port 80 is open for HTTP-01 challenge
+       - DNS A record points to the LB's IP
+       - No Anti-DDoS VAC filtering is blocking ACME traffic
+    5. Manual renewal trigger:
+       PUT /cloud/project/{serviceName}/loadbalancer/{loadbalancerId}/certificate/{certificateId}/renew
+remediation_action: renew_ssl_certificate
+error_message: '[HAProxy] LB-SSL-CERT-RENEWAL frontend={lb_frontend} certificate={cert_name} domain={cert_domain}
+  expires_in={days_remaining}d renewal_status={renewal_status} reload_duration={reload_ms}ms'
+stack_trace: |-
+  SSL Certificate Renewal Report
+  --------------------------------
+  Frontend:         {lb_frontend}
+  Certificate:      {cert_name}
+  Domain:           {cert_domain}
+  Days Remaining:   {days_remaining}
+  Renewal Status:   {renewal_status}
+  HAProxy Reload:   {reload_ms}ms
+  Issuer:           Let's Encrypt
+  Action: Auto-renewal in progress — monitor for ACME challenge completion
+correlation_attr:
+  key: deployment.cert_manager
+  value: letsencrypt-haproxy-v2
+fault_params:
+  lb_frontend: {choice: [ovhnet-fe-https, ovhnet-fe-tcp]}
+  cert_name: {choice: [ovhnet-cert-prod-01, ovhnet-cert-prod-02]}
+  cert_domain: {choice: [api.ovhnet.example.com, app.ovhnet.example.com, "*.ovhnet.example.com"]}
+  days_remaining: {randint: [-2, 5]}
+  renewal_status: {choice: [RENEWING, PENDING_VALIDATION, RENEWED]}
+  reload_ms: {randint: [100, 800]}
+rca_clues:
+  ovh-load-balancer:
+    lb.cert_renewal_in_progress: true
+    lb.haproxy_reload_count: {randint: [1, 3]}
+  vrack-network-manager:
+    vrack.acme_challenge_path_accessible: {choice: [true, true, false]}
+  anti-ddos-vac:
+    vac.acme_traffic_filtered: {choice: [false, false, true]}
+business_impact:
+  - kpi: business.lb_requests_per_min
+    factor: {uniform: [0.90, 0.98]}
+  - kpi: business.active_connections
+    factor: {uniform: [0.85, 0.95]}
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.98, 0.999]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [0.0, 1.0]}

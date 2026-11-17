@@ -1,0 +1,60 @@
+name: vRack Cross-DC VLAN Segmentation
+subsystem: core_network
+vehicle_section: vrack_routing
+error_type: VRACK-VLAN-SEGMENTATION
+sensor_type: vlan_connectivity
+affected_services:
+- vrack-network-manager
+- ovh-load-balancer
+cascade_services:
+- managed-kubernetes
+description: vRack VLAN misconfiguration causing private network segmentation between datacenters
+investigation_notes: |-
+  Root cause: A VLAN tagging mismatch between datacenters has caused private network segmentation. Instances in one DC cannot reach instances in another DC over the vRack. This typically occurs after a network reconfiguration when VLAN IDs are changed on one side but not propagated to the peer DC. The vRack service spans DCs but requires consistent VLAN tagging on all endpoints. Diagnose:
+    ovh-cli cloud project list
+    ovh-cli vrack list
+    ovh-cli vrack get <vrackId> --details
+    openstack network list --provider-network-type vlan
+    openstack port list --network <network_id> --long
+  Check cross-DC connectivity:
+    openstack server ssh <instance_gra> -- ping -c 5 <instance_sbg_private_ip>
+  Remediation: Verify VLAN IDs match across all DCs in the vRack configuration. If a VLAN was recently added or modified, ensure the change was applied to all associated private networks:
+    ovh-cli vrack update <vrackId> --vlan <vlan_id> --datacenter GRA11,SBG5
+  If the vRack service itself is degraded, check OVH status page (https://www.status-ovhcloud.com/) and open a support ticket. As a temporary workaround, configure explicit static routes between subnets via the OVH API:
+    POST /cloud/project/{serviceName}/network/private/{networkId}/subnet
+remediation_action: reset_vrack_vlan
+error_message: 'level=error ts={{timestamp}} caller=vrack_manager.go:218 msg="VRACK-VLAN-SEGMENTATION" vrack={vrack_id}
+  vlan={vlan_id} src_dc={src_dc} dst_dc={dst_dc} packet_loss={packet_loss_pct}% unreachable_hosts={unreachable_hosts}'
+stack_trace: "goroutine 142 [running]:\nruntime/debug.Stack()\n\t/usr/local/go/src/runtime/debug/stack.go:24 +0x5e\novhcloud.com/vrack/internal.(*VlanMonitor).CheckCrossDC(0xc000418000,\
+  \ {{0xc000a12480}}, {{0xc000a124c0}})\n\t/app/internal/vrack/vlan_monitor.go:218 +0x3a2\n  vRack: {vrack_id}\n  VLAN:\
+  \ {vlan_id}\n  Source DC: {src_dc}\n  Dest DC: {dst_dc}\n  Packet Loss: {packet_loss_pct}%\n  Unreachable Hosts: {unreachable_hosts}\n\
+  \  Action: Verify VLAN tagging consistency across datacenters"
+correlation_attr:
+  key: deployment.vrack_config_version
+  value: vrack-cfg-v3.2-canary
+fault_params:
+  vrack_id: {choice: [pn-ovhnet-prod, pn-ovhnet-staging]}
+  vlan_id: {randint: [100, 4094]}
+  src_dc: {choice: [GRA11, SBG5, BHS5]}
+  dst_dc: {choice: [SBG5, BHS5, GRA11]}
+  packet_loss_pct: {uniform: [45.0, 100.0], round: 1}
+  unreachable_hosts: {randint: [3, 15]}
+rca_clues:
+  vrack-network-manager:
+    vrack.vlan_state: SEGMENTED
+    vrack.cross_dc_pair: GRA-SBG
+  ovh-load-balancer:
+    lb.backend_reachability: partial
+    lb.cross_dc_backends_down: true
+  managed-kubernetes:
+    mks.cni_cross_dc_status: UNREACHABLE
+    mks.pods_in_crashloop: {randint: [2, 8]}
+business_impact:
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.88, 0.96]}
+  - kpi: business.api_success_rate_pct
+    factor: {uniform: [0.75, 0.90]}
+  - kpi: business.vrack_cross_dc_latency_ms
+    factor: {uniform: [8.0, 25.0]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [2.0, 6.0]}

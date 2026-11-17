@@ -1,0 +1,70 @@
+name: Anti-DDoS VAC False Positive
+subsystem: security
+vehicle_section: vac_scrubbing
+error_type: VAC-FALSE-POSITIVE-FILTERING
+sensor_type: traffic_analysis
+affected_services:
+- anti-ddos-vac
+- ovh-load-balancer
+cascade_services:
+- ovhcloud-connect
+description: OVHcloud Anti-DDoS VAC scrubbing incorrectly filtering legitimate traffic
+investigation_notes: |-
+  Root cause: The OVHcloud VAC (Vacuum) anti-DDoS scrubbing system has activated on a detected volumetric attack, but the mitigation profile is too aggressive and is filtering legitimate traffic along with attack traffic. OVHcloud's Anti-DDoS is automatic — it cannot be disabled or fine-tuned per-IP via self-service. The VAC scrubbing centers (GRA, SBG, BHS, RBX) apply network-level mitigation profiles. Diagnose:
+    ovh-cli ip list --type failover
+    ovh-cli ip mitigation get <ip> --details
+    GET /ip/{ip}/mitigation  # via OVH API
+    GET /ip/{ip}/mitigation/{ipOnMitigation}  # check mitigation state and duration
+  Check traffic patterns:
+    # Compare inbound traffic before/during mitigation
+    GET /ip/{ip}/mitigation/{ipOnMitigation}/stats?period=lastHour&type=bitsPerSecond
+  Remediation: OVHcloud's Anti-DDoS cannot be directly tuned by the customer. Available actions:
+    1. Wait for automatic mitigation to end (typically 2-26 hours depending on attack subsidence)
+    2. Contact OVH support to request profile adjustment: open a ticket via the OVH Manager referencing the mitigation event
+    3. If using OVHcloud Game DDoS Pro, adjust the firewall rules:
+       ovh-cli ip game-mitigation rule create <ip> --protocol TCP --toPort 443
+    4. As a workaround, route critical traffic through OVHcloud Connect (private path, bypasses VAC)
+    5. For permanent mitigation, enable permanent mitigation on the IP (keeps scrubbing always on, reducing false positives from activation spikes):
+       PUT /ip/{ip}/mitigation/{ipOnMitigation} --permanent true
+remediation_action: adjust_mitigation_profile
+error_message: '[VAC] VAC-FALSE-POSITIVE-FILTERING center={vac_center} target_ip={target_ip} legit_dropped={legit_dropped_pct}%
+  attack_volume={attack_volume}Mbps mitigation_duration={mitigation_duration}min profile={mitigation_profile}'
+stack_trace: |-
+  VAC Scrubbing Analysis Report
+  ------------------------------
+  Scrubbing Center:  {vac_center}
+  Target IP:         {target_ip}
+  Legit Dropped:     {legit_dropped_pct}%
+  Attack Volume:     {attack_volume} Mbps
+  Duration:          {mitigation_duration} min
+  Profile:           {mitigation_profile}
+  Permanent Mode:    false
+  Action: Contact OVH support or route via OVHcloud Connect
+correlation_attr:
+  key: infra.vac_firmware
+  value: vac-fw-4.8.2-hotfix
+fault_params:
+  vac_center: {choice: [VAC-GRA, VAC-SBG, VAC-BHS, VAC-RBX]}
+  target_ip: {format: "198.51.100.{a}", a: {randint: [1, 254]}}
+  legit_dropped_pct: {uniform: [12.0, 45.0], round: 1}
+  attack_volume: {uniform: [500.0, 8000.0], round: 0}
+  mitigation_duration: {randint: [5, 180]}
+  mitigation_profile: {choice: [network, game, cdn]}
+rca_clues:
+  anti-ddos-vac:
+    vac.false_positive_rate: {uniform: [12.0, 45.0], round: 1}
+    vac.mitigation_active: true
+  ovh-load-balancer:
+    lb.inbound_traffic_drop_pct: {uniform: [15.0, 60.0], round: 1}
+    lb.client_connection_resets: {randint: [500, 5000]}
+  ovhcloud-connect:
+    connect.failover_traffic_increase_pct: {uniform: [20.0, 80.0], round: 1}
+business_impact:
+  - kpi: business.lb_requests_per_min
+    factor: {uniform: [0.40, 0.70]}
+  - kpi: business.uptime_pct
+    factor: {uniform: [0.85, 0.95]}
+  - kpi: business.ddos_mitigation_events_per_min
+    factor: {uniform: [5.0, 20.0]}
+  - kpi: business.customer_sla_breach_count
+    factor: {uniform: [2.0, 7.0]}
